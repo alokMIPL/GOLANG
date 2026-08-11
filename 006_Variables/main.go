@@ -34,4 +34,14 @@ func main() {
 	studentName := "Didarian"
 	fmt.Println(studentName)
 
+	// Declaration first and initialize later
+	var carName string
+	carName = "Honda"
+
+	fmt.Println(carName)
+
+	/* This Declaration first and initialize later
+	will we use in every DataType like Int, Float, String etc.
+	*/
+
 }
