@@ -63,6 +63,16 @@ func main() {
 
 	fmt.Println("*****************")
 
-	//
+	// 2D Array
+	arrays := [2][2]int{{3, 4}, {5, 6}}
+	fmt.Println(arrays)
+	// Output: [[3 4] [5 6]]
+
+	/*
+		When we use Array
+		1. Fixed size, that is predictable
+		2. Memory optimazation
+		3. Contant time access
+	*/
 
 }
