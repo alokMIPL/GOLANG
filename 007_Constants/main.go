@@ -32,4 +32,12 @@ func main() {
 		const name untyped string = "goLang"
 	*/
 
+	// We can declare and initialize Multiple Constant same time.
+	const (
+		port = 5000
+		host = "localhost"
+	)
+
+	fmt.Println(port, host)
+
 }
