@@ -43,4 +43,13 @@ func main() {
 		fmt.Println("yes")
 	}
 
+	// We can declare variable inside IF_ELSE
+	if number := 78; number >= 80 {
+		fmt.Println("Topper", number)
+	} else if number >= 60 {
+		fmt.Println("Average", number)
+	} else {
+		fmt.Println("Below Average", number)
+	}
+
 }
