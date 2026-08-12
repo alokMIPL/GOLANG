@@ -35,4 +35,34 @@ func main() {
 
 	fmt.Println("*****************")
 
+	// Same for String also
+	var names [4]string
+	fmt.Println(names)
+	// Output: [   ]
+	// it show empty string
+
+	fmt.Println("*****************")
+
+	/* But i have 4 string array and i decalre the index[2] with "GOLANG" then index[0], index[1], index[3] show empty string but index[2] show GOLANG in output
+	 */
+	names[2] = "GOLANG"
+	fmt.Println(names)
+	// Output: [  GOLANG ]
+
+	fmt.Println("*****************")
+
+	// Now i want then at the time of Declaration i want to initialized then array value.
+
+	arr := [3]int{1, 2, 3}
+	fmt.Println(arr)
+	/*
+		Here at declaration of an array we fixed the length of an array.
+		If we excide the value more than the length then we get an error.
+		But if our initialization is less than length of array then for extra empty space is occupied by ZERO.
+	*/
+
+	fmt.Println("*****************")
+
+	//
+
 }
