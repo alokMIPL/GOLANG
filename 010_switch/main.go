@@ -40,5 +40,34 @@ func main() {
 	}
 
 	// TYPE SWITCH
+	whoAmI := func(i interface{}) {
+		switch i.(type) {
+		case int:
+			fmt.Println("it's an integer")
+		case string:
+			fmt.Println("it's an string")
+		case bool:
+			fmt.Println("it's an boolean")
+		case float32:
+			fmt.Println("it's an float")
+		default:
+			fmt.Println("other")
+		}
+	}
+
+	whoAmI(12)
+	whoAmI("SWITCH Case")
+	whoAmI(true)
+	whoAmI(12.45)
+	// whoAmI()
+
+	/* Output of TYPE SWITCH
+		it's workday
+	it's an integer
+	it's an string
+	it's an boolean
+	other
+
+	*/
 
 }
