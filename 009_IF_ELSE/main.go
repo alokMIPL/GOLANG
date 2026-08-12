@@ -24,4 +24,23 @@ func main() {
 		fmt.Println("Person is Kid")
 	}
 
+	fmt.Println("****************")
+
+	// Logical OR in IF_ELSE
+
+	var role = "admin"
+	var hasPermissions = false
+
+	// OR operator
+	if role == "admin" || hasPermissions {
+		fmt.Println("yes")
+	}
+
+	fmt.Println("****************")
+
+	// And operator
+	if role == "admin" && hasPermissions {
+		fmt.Println("yes")
+	}
+
 }
