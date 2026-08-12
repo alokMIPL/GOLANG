@@ -52,4 +52,6 @@ func main() {
 		fmt.Println("Below Average", number)
 	}
 
+	// GO does not have ternary, you will have to use normal if or if_else
+
 }
