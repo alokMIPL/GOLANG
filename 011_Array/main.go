@@ -7,6 +7,7 @@ func main() {
 
 	// Declaration of Array
 	var nums [4]int
+	// here we declare int type array
 
 	// Finding the lenght of Array
 	fmt.Println(len(nums))

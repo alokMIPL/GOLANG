@@ -9,8 +9,6 @@ func main() {
 	fmt.Println(name)
 
 	// short method
-	// it automatic infer or detect that the variable is string.
-
 	/*
 		var empName string
 		short method it automatic infer or detect that the variable is string.
