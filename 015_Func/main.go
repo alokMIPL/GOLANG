@@ -75,7 +75,7 @@ func factorial(n int) int {
 }
 
 // ======================================================
-// Function as Parameter
+// Function as Parameters
 // ======================================================
 
 func operate(a, b int, operation func(int, int) int) int {
