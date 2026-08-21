@@ -278,15 +278,15 @@ they are **not the same**.
 Every Go data type has a zero value.
 
 | Data Type | Zero Value |
-|------------|------------|
-| int | 0 |
-| bool | false |
-| string | "" |
-| pointer | nil |
-| map | nil |
-| slice | nil |
-| channel | nil |
-| function | nil |
+| --------- | ---------- |
+| int       | 0          |
+| bool      | false      |
+| string    | ""         |
+| pointer   | nil        |
+| map       | nil        |
+| slice     | nil        |
+| channel   | nil        |
+| function  | nil        |
 
 The zero value of a slice is **nil**.
 
