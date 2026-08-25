@@ -103,4 +103,26 @@ func main() {
 
 	// So, to get empty SLICE we use limit as 0 like this
 
+	var carNumber = make([]int, 0, 5)
+	carNumber = append(carNumber, 1)
+	carNumber = append(carNumber, 2)
+	carNumber = append(carNumber, 3)
+	carNumber = append(carNumber, 4)
+	fmt.Println(carNumber)
+	fmt.Println(cap(carNumber))
+	fmt.Println(len(carNumber))
+
+	// Now ShortHand Method for SLICE
+
+	stuName := []int{}
+
+	stuName = append(stuName, 1)
+	stuName = append(stuName, 2)
+	stuName = append(stuName, 3)
+	stuName = append(stuName, 4)
+	stuName = append(stuName, 5)
+	fmt.Println(stuName)
+	fmt.Println(cap(stuName))
+	fmt.Println(len(stuName))
+
 }
