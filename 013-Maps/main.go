@@ -33,4 +33,23 @@ func main() {
 	// Now see we initalize roll in mpa not kola but wehn we access these two value, then we get 12 and 0 in map.
 	// kola is not present in map so it give 0 because our KEY-VALUE pair is string-int.
 
+	// To get length of a MAP.
+	fmt.Println(len(m), len(n))
+	// Output = 2 1
+
+	// How to Print whole map not element wise.
+	fmt.Println(m)
+	// Output = map[area:backend name:golang]
+
+	// Delete ELEMENT for MAP
+	delete(m, "area")
+	fmt.Println(m)
+	// Output= map[name:golang]
+
+	// If we want to clear or empty the map then we use clear() function.
+
+	clear(m)
+	fmt.Println(m)
+	// Output = map[] empty map.
+
 }
