@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"maps"
+)
 
 // maps => hash, object, dict in different programmign languages.
 
@@ -51,5 +54,37 @@ func main() {
 	clear(m)
 	fmt.Println(m)
 	// Output = map[] empty map.
+
+	// Now we can declare map by another method not using make() function.
+
+	shop := map[string]int{"price": 40, "phones": 3}
+	fmt.Println(shop)
+	// Output = map[phones:3 price:40]
+
+	// To get any element form map or to check that it is available or not or any conditional things then we use this.
+
+	v, ok := shop["phones"]
+	fmt.Println(v)
+	if ok {
+		fmt.Println("all ok")
+	} else {
+		fmt.Println("not ok")
+	}
+
+	// Output = 3
+	// 					all ok
+
+	// Now we have 2 MAP's and i want to check hese two are equal or not.
+
+	m1 := map[string]int{"price": 40, "phones": 3}
+	m2 := map[string]int{"price": 40, "phones": 3}
+
+	fmt.Println(maps.Equal(m1, m2))
+	// Output = true
+
+	m3 := map[string]int{"price": 140, "phones": 3}
+	m4 := map[string]int{"price": 40, "phones": 3}
+	fmt.Println(maps.Equal(m3, m4))
+	// Output = false
 
 }
