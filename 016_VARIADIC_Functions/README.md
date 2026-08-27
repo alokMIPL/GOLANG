@@ -1,360 +1,134 @@
-# Variadic Functions in Golang
+# Variadic Functions in Go
 
-This project demonstrates **Variadic Functions** in Go (Golang). A variadic function allows you to pass **zero or more arguments** of the same type to a function. Inside the function, the variadic parameter behaves like a **slice**.
+A simple Go program demonstrating **variadic functions** — functions that can accept a variable number of arguments.
+
+## What is a Variadic Function?
+
+A **variadic function** is a function that can be called with any number of arguments of a specified type. In Go, you declare one using `...` before the parameter type.
+
+```go
+func functionName(params ...Type) ReturnType
+```
+
+Inside the function, `params` behaves like a slice (`[]Type`) of all the arguments passed in.
 
 ---
 
-# What is a Variadic Function?
+## Code Overview
 
-A **variadic function** is a function that can accept **any number of arguments** of the same type.
+This program demonstrates two variadic functions:
 
-### Syntax
+| Function   | Signature              | Purpose                                              |
+|------------|-------------------------|-------------------------------------------------------|
+| `sum`      | `func sum(nums ...int) int` | Accepts any number of `int` arguments and returns their sum |
+| `anyType`  | `func anyType(nums ...any) int` | Accepts any number of arguments of **any type** and returns the count |
+
+It also shows that Go's built-in `fmt.Println()` is itself a variadic function.
+
+---
+
+## Full Source Code
 
 ```go
-func functionName(parameterName ...dataType) {
-    // code
+package main
+
+import "fmt"
+
+// how to make a variadic function
+// Now this sum() function only takes int type
+func sum(nums ...int) int {
+	total := 0
+
+	for _, num := range nums {
+		total = total + num
+	}
+	return total
+}
+
+// If we want to make a function that take any Data Type then we need to use ...any or ...interface.
+
+func anyType(nums ...any) int {
+	fmt.Println(nums...)
+	return len(nums)
+}
+
+func main() {
+
+	// Variadic Function in fmt.Println()
+	fmt.Println(1, 2, 3, 4, 5, 6, 7, "Hello")
+	// In Variadic function we can pass any number of parameters, basically there is no limit for that.
+
+	result := sum(1, 2, 3, 4, 5, 6, 7, 8)
+	fmt.Println(result)
+
+	finalResult := anyType(1, 3, 5, 6, "kola", 345, true, false, "alok")
+	fmt.Println(finalResult)
+
 }
 ```
 
-Example:
+---
+
+## How It Works
+
+### 1. `sum(nums ...int) int`
+
+- Accepts **zero or more `int` values**.
+- Inside the function, `nums` is treated as `[]int`.
+- Uses a `for range` loop to add up every number and return the `total`.
 
 ```go
-func sum(numbers ...int) {
-    // numbers is a slice ([]int)
+func sum(nums ...int) int {
+	total := 0
+	for _, num := range nums {
+		total = total + num
+	}
+	return total
 }
 ```
 
----
+Calling `sum(1, 2, 3, 4, 5, 6, 7, 8)` sums all 8 integers and returns `36`.
 
-# Project Structure
+### 2. `anyType(nums ...any) int`
 
-```
-variadic-function/
-│── main.go
-│── README.md
-```
-
----
-
-# Examples Covered
-
-This project includes the following examples:
-
-- Basic Variadic Function (`sum`)
-- Variadic Function with Strings (`printNames`)
-- Finding the Maximum Number (`max`)
-- Normal Parameter + Variadic Parameter (`greet`)
-- Passing a Slice to a Variadic Function
-- `fmt.Println()` as a Variadic Function
-- Checking the Type of a Variadic Parameter
-
----
-
-# Example 1: Basic Variadic Function
+- Accepts **any number of arguments of any type** (`int`, `string`, `bool`, etc.) using `...any`.
+- `any` is a built-in alias for `interface{}` (introduced in Go 1.18) — it represents a type with zero method constraints, so it can hold a value of any type.
+- `fmt.Println(nums...)` uses the `...` **spread operator** to unpack the slice and pass each element as an individual argument to `Println` (rather than printing the slice as one value).
+- Returns `len(nums)` — the total count of arguments passed in.
 
 ```go
-func sum(numbers ...int)
+func anyType(nums ...any) int {
+	fmt.Println(nums...)
+	return len(nums)
+}
 ```
 
-This function:
+Calling `anyType(1, 3, 5, 6, "kola", 345, true, false, "alok")` prints all 9 values and returns `9`.
 
-- Accepts zero or more integers.
-- Calculates their sum.
-- Prints the slice and total.
-
-Example:
+### 3. `fmt.Println(...)` is Variadic Too
 
 ```go
-sum(10, 20)
-sum(1, 2, 3, 4, 5)
-sum()
+fmt.Println(1, 2, 3, 4, 5, 6, 7, "Hello")
 ```
 
-
-Output:
-
-```
-Numbers: [10 20]
-Sum: 30
-
-Numbers: [1 2 3 4 5]
-Sum: 15
-
-Numbers: []
-Sum: 0
-```
+This works because `Println`'s signature is `func Println(a ...any) (n int, err error)` — it's already variadic, which is why you can pass mixed types and any number of them.
 
 ---
 
-# Example 2: Variadic Function with Strings
-
-```go
-func printNames(names ...string)
-```
-
-This function accepts multiple names and prints them.
-
-Example:
-
-```go
-printNames("Alok")
-printNames("Rahul", "Amit", "Priya")
-```
-
-Output:
+## Running the Program
 
 ```
-Names:
-1. Alok
-
-Names:
-1. Rahul
-2. Amit
-3. Priya
+1 2 3 4 5 6 7 Hello
+36
+1 3 5 6 kola 345 true false alok
+9
 ```
+
+| Line | Explanation |
+|------|-------------|
+| `1 2 3 4 5 6 7 Hello` | Output of the direct `fmt.Println(...)` call |
+| `36` | Result of `sum(1,2,3,4,5,6,7,8)` → 1+2+3+4+5+6+7+8 |
+| `1 3 5 6 kola 345 true false alok` | Printed inside `anyType`, showing all mixed-type values |
+| `9` | Count of arguments passed to `anyType` |
 
 ---
-
-# Example 3: Find Maximum Number
-
-```go
-func max(nums ...int) int
-```
-
-This function returns the largest number from the provided integers.
-
-Example:
-
-```go
-max(10, 50, 20, 90, 15)
-```
-
-Output:
-
-```
-Maximum Number: 90
-```
-
----
-
-# Example 4: Normal Parameter + Variadic Parameter
-
-```go
-func greet(message string, names ...string)
-```
-
-A variadic parameter **must always be the last parameter**.
-
-Example:
-
-```go
-greet("Hello", "Alok", "Rahul", "Amit")
-```
-
-Output:
-
-```
-Hello Alok
-Hello Rahul
-Hello Amit
-```
-
----
-
-# Example 5: Passing a Slice
-
-Suppose you already have a slice:
-
-```go
-numbers := []int{10, 20, 30, 40, 50}
-```
-
-❌ Wrong
-
-```go
-sum(numbers)
-```
-
-This produces a compile-time error.
-
-✅ Correct
-
-```go
-sum(numbers...)
-```
-
-Output:
-
-```
-Numbers: [10 20 30 40 50]
-Sum: 150
-```
-
----
-
-# Example 6: fmt.Println() is Variadic
-
-The Go standard library uses variadic functions.
-
-```go
-fmt.Println("Hello")
-fmt.Println("Hello", "World")
-fmt.Println(10, 20, 30, 40, 50)
-```
-
-Its declaration is similar to:
-
-```go
-func Println(a ...any)
-```
-
----
-
-# Example 7: Variadic Parameter is a Slice
-
-```go
-func checkType(nums ...int)
-```
-
-Inside the function, the variadic parameter is actually a slice.
-
-```go
-fmt.Printf("%T", nums)
-```
-
-Output:
-
-```
-[]int
-```
-
-Example output:
-
-```
-Type of nums : []int
-Length : 5
-Values : [1 2 3 4 5]
-```
-
----
-
-# Rules of Variadic Functions
-
-- A variadic function can accept zero or more arguments.
-- All arguments must be of the same type.
-- Inside the function, the variadic parameter behaves like a slice.
-- A variadic parameter must always be the last parameter.
-- Use the `...` operator to pass a slice to a variadic function.
-- Only one variadic parameter is allowed in a function.
-
----
-
-# Output
-
-```
-========== Example 1 : Sum ==========
-Numbers: [10 20]
-Sum: 30
-
-Numbers: [1 2 3 4 5]
-Sum: 15
-
-Numbers: []
-Sum: 0
-
-========== Example 2 : Names ==========
-Names:
-1. Alok
-
-Names:
-1. Rahul
-2. Amit
-3. Priya
-
-========== Example 3 : Maximum ==========
-Maximum Number: 90
-
-========== Example 4 : Greeting ==========
-Hello Alok
-Hello Rahul
-Hello Amit
-
-========== Example 5 : Slice ==========
-Numbers: [10 20 30 40 50]
-Sum: 150
-
-========== Example 6 : fmt.Println ==========
-Hello
-Hello World
-10 20 30 40 50
-
-========== Example 7 : Type ==========
-Type of nums : []int
-Length : 5
-Values : [1 2 3 4 5]
-```
-
----
-
-# Key Takeaways
-
-- `...` makes a function variadic.
-- Variadic functions accept any number of arguments.
-- The variadic parameter is treated as a slice inside the function.
-- A variadic parameter must be the last parameter.
-- Use `slice...` to pass a slice to a variadic function.
-- Many Go standard library functions, such as `fmt.Println()`, are variadic.
-
----
-
-# Interview Questions
-
-### 1. What is a variadic function?
-
-A function that accepts **zero or more arguments** of the same type.
-
----
-
-### 2. What is the type of a variadic parameter?
-
-It is a **slice**.
-
-Example:
-
-```go
-func demo(nums ...int)
-```
-
-Here, `nums` is of type `[]int`.
-
----
-
-### 3. Can a function have multiple variadic parameters?
-
-No.
-
----
-
-### 4. Where should a variadic parameter be placed?
-
-It must always be the **last parameter**.
-
----
-
-### 5. How do you pass a slice to a variadic function?
-
-```go
-numbers := []int{1, 2, 3}
-
-sum(numbers...)
-```
-
-Use the `...` operator to expand the slice into individual arguments.
-
----
-
-# Author
-
-**Alok Kumar**
-
-Learning **Go (Golang)** from Beginner to Advanced 🚀
