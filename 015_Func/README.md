@@ -84,11 +84,13 @@ func main() {
 ## Breakdown
 
 ### 1. Basic function signature
+
 ```go
 func add(a int, b int) int {
 	return a + b
 }
 ```
+
 - `(a int, b int)` — the parameters and their types.
 - The trailing `int` before `{` is the **return type**; the function must
   return an `int`.
@@ -96,11 +98,13 @@ func add(a int, b int) int {
   `func add(a, b int) int` instead of repeating `int` for each one.
 
 ### 2. Returning multiple values
+
 ```go
 func getLanguages() (string, string, string) {
 	return "golang", "javaScript", "c++"
 }
 ```
+
 Go functions can return more than one value — no need for a struct, tuple,
 or wrapper object. The return types are listed in parentheses, matching the
 order of the returned values.
@@ -110,32 +114,38 @@ func getLanguagesMixed() (string, string, bool) {
 	return "golang", "javaScript", true
 }
 ```
+
 Mixed types work the same way — each position in the return list has its
 own declared type.
 
 > **Common Go convention:** many standard library functions return
 > `(value, error)` — e.g. `result, err := someFunc()`. If you don't care
 > about one of the returned values, discard it with `_`:
+>
 > ```go
 > _, err := someFunc()
 > ```
 
 ### 3. Functions as first-class values
+
 ```go
 greet := func(name string) string {
 	return "Hello, " + name
 }
 fmt.Println(greet("Alok")) // Hello, Alok
 ```
+
 A function can be assigned to a variable just like any other value, then
 called through that variable.
 
 ### 4. Passing functions as arguments (higher-order functions)
+
 ```go
 func apply(a, b int, op func(int, int) int) int {
 	return op(a, b)
 }
 ```
+
 `apply` accepts another function (`op`) as a parameter, with the signature
 `func(int, int) int`. Any function matching that signature can be passed in:
 
@@ -148,6 +158,7 @@ func multiply(x, y int) int {
 	return x * y
 }
 ```
+
 ```go
 fmt.Println(apply(3, 4, add))      // 7
 fmt.Println(apply(3, 4, multiply)) // 12
@@ -160,14 +171,14 @@ signature.
 
 ## Key Takeaways
 
-| Concept | Example |
-|---|---|
-| Typed parameters | `func add(a int, b int) int` |
-| Shorthand shared type | `func add(a, b int) int` |
-| Multiple return values | `func f() (string, string, bool)` |
-| Discard a return value | `_, err := f()` |
-| Assign function to variable | `greet := func(name string) string {...}` |
-| Pass function as argument | `func apply(a, b int, op func(int, int) int) int` |
+| Concept                     | Example                                           |
+| --------------------------- | ------------------------------------------------- |
+| Typed parameters            | `func add(a int, b int) int`                      |
+| Shorthand shared type       | `func add(a, b int) int`                          |
+| Multiple return values      | `func f() (string, string, bool)`                 |
+| Discard a return value      | `_, err := f()`                                   |
+| Assign function to variable | `greet := func(name string) string {...}`         |
+| Pass function as argument   | `func apply(a, b int, op func(int, int) int) int` |
 
 - Go doesn't require you to bundle multiple outputs into a struct — multiple
   return values are a first-class language feature.
