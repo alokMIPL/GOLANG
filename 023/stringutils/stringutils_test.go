@@ -1,10 +1,3 @@
-// Notice the package name here: "stringutils_test", not "stringutils".
-// This is BLACK-BOX testing — the test file lives in the same directory
-// but is compiled as if it were an external consumer of the package.
-// It can only see stringutils' EXPORTED identifiers (Reverse, IsPalindrome,
-// CountVowels, Title) — not unexported ones like `vowels`. This is the
-// recommended style when you want your tests to verify the public API
-// exactly as real callers will use it.
 package stringutils_test
 
 import (
@@ -23,9 +16,9 @@ func TestReverse(t *testing.T) {
 
 func TestIsPalindrome(t *testing.T) {
 	cases := map[string]bool{
-		"racecar":        true,
+		"racecar":                     true,
 		"A man a plan a canal Panama": true,
-		"golang":         false,
+		"golang":                      false,
 	}
 	for input, want := range cases {
 		if got := stringutils.IsPalindrome(input); got != want {
