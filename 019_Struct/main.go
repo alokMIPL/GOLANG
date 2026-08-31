@@ -20,6 +20,13 @@ type order struct {
 // receiver type
 func (o *order) changeStatus(status string) {
 	o.status = status
+	// Here in Struct automatically deReferencing the value here.
+	// Here we modify the valuye so we us * pointer
+}
+
+func (o order) getAmount() float32 {
+	return o.amount
+	// Here we only get the value so dont need to use * pointer
 }
 
 func main() {
