@@ -16,6 +16,12 @@ type order struct {
 	createdAt time.Time
 }
 
+// To pass or connect the struct to a function
+// receiver type
+func (o *order) changeStatus(status string) {
+	o.status = status
+}
+
 func main() {
 
 	myOrder := order{
@@ -49,5 +55,10 @@ func main() {
 	myOrder.status = "paid"
 	fmt.Println("Order Struct", myOrder)
 	// Output = Order Struct {1 50 paid {14023467791572242772 1 0x7ff714175440}}
+
+	myOrder.changeStatus("Confirmed")
+	// Here we pass struct instruct in fucntion and change the status of myOder
+	fmt.Println("Order Struct by fucntion", myOrder)
+	// Output = Order Struct by fucntion {1 50 Confirmed {14023469124807640180 1 0x7ff76ef55440}}
 
 }
