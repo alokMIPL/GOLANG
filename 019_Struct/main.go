@@ -29,6 +29,17 @@ func (o order) getAmount() float32 {
 	// Here we only get the value so dont need to use * pointer
 }
 
+// How to use constructor in GOLANG
+// For using this we use it by Using Function()
+func newOrder(id string, amount float32, status string) *order {
+	myOrder3 := order{
+		id:     id,
+		amount: amount,
+		status: status,
+	}
+	return &myOrder3
+}
+
 func main() {
 
 	myOrder := order{
@@ -68,4 +79,14 @@ func main() {
 	fmt.Println("Order Struct by fucntion", myOrder)
 	// Output = Order Struct by fucntion {1 50 Confirmed {14023469124807640180 1 0x7ff76ef55440}}
 
+	fmt.Println(myOrder.getAmount())
+	// Output = 50
+
+	// In Struct if we don't set any value then zero value is set bydefault.
+
+	// How to use constructor in GOLANG
+	// For using this we use it by Using Function()
+	myOrderStruct := newOrder("1", 20.34, "Paid")
+	fmt.Println("myOrder3 of Struct by using Constructor", myOrderStruct)
+	// Output = myOrder3 of Struct by using Constructor &{1 20.34 Paid {0 0 <nil>}}
 }
