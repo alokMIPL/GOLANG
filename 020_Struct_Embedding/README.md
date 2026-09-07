@@ -4,7 +4,7 @@ This project demonstrates **struct embedding** in Go — a way to compose struct
 
 ---
 
-## 📦 What is Struct Embedding?
+## What is Struct Embedding?
 
 Go doesn't support traditional class-based inheritance. Instead, it uses **composition** through **embedding**. You can place one struct inside another **without giving it a field name**, and its fields become directly accessible through the outer struct.
 
@@ -27,7 +27,7 @@ Notice that `customer` is declared inside `order` **without a field name** — j
 
 ---
 
-## 🔍 How Embedding Works
+## How Embedding Works
 
 When a struct is embedded:
 
@@ -47,7 +47,7 @@ Both work because `name` is **promoted** from `customer` up to `order`.
 
 ---
 
-## 🖥️ Full Code
+## Full Code
 
 ```go
 package main
@@ -106,7 +106,7 @@ func main() {
 
 ---
 
-## 📊 Output Breakdown
+## Output Breakdown
 
 ```
 Order Struct {1 50 received {0 0 <nil>} {John Doe 1234567890}}
@@ -133,7 +133,7 @@ Accessing fields explicitly through `newOrder.customer.name` and `newOrder.custo
 
 ---
 
-## ⚖️ Embedding vs. Named Field
+## Embedding vs. Named Field
 
 | Approach | Syntax | Field Access |
 |---|---|---|
@@ -141,13 +141,3 @@ Accessing fields explicitly through `newOrder.customer.name` and `newOrder.custo
 | **Named field** | `cust customer` | Only `order.cust.name` (no promotion) |
 
 Embedding is preferred when you want the outer struct to feel like it "has" all the inner struct's capabilities directly — similar to inheritance-style reuse, but built on **composition**.
-
----
-
-## 🔑 Key Takeaways
-
-1. Go achieves code reuse through **composition (embedding)**, not classical inheritance.
-2. An embedded struct is declared **by type only**, with no explicit field name.
-3. Fields (and methods, if any) of the embedded struct are **promoted** to the outer struct.
-4. You can still access the embedded struct explicitly via its type name (`order.customer.name`).
-5. This pattern keeps Go's type system simple while still allowing flexible, reusable data structures.
