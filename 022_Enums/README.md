@@ -1,24 +1,5 @@
 # Go Enums — `iota` vs String-based Constants
 
-This project demonstrates how **enumerated types (enums)** are typically implemented in Go, since Go has no built-in `enum` keyword like other languages (Java, C#, TypeScript). Instead, Go uses **typed constants**, most commonly combined with the `iota` identifier.
-
----
-
-## Table of Contents
-
-1. [Why Go Doesn't Have Native Enums](#why-go-doesnt-have-native-enums)
-2. [Approach 1: Integer Enum with `iota`](#approach-1-integer-enum-with-iota)
-3. [Approach 2: String-based Enum](#approach-2-string-based-enum)
-4. [Code Walkthrough](#code-walkthrough)
-5. [How It Runs](#how-it-runs)
-6. [Comparing the Two Approaches](#comparing-the-two-approaches)
-7. [Known Limitation](#known-limitation)
-8. [Suggested Improvement (Stringer Pattern)](#suggested-improvement-stringer-pattern)
-9. [Key Takeaways](#key-takeaways)
-10. [Possible Extensions](#possible-extensions)
-
----
-
 ## Why Go Doesn't Have Native Enums
 
 Unlike languages with a dedicated `enum` keyword, Go models enums using:
@@ -192,31 +173,3 @@ Changing order status to Prepared
 ```
 
 This is the idiomatic Go way to make `iota`-based enums print nicely, and tools like `stringer` (part of `golang.org/x/tools`) can auto-generate this method for you from the `const` block.
-
----
-
-## Key Takeaways
-
-| Concept | Explanation |
-|---|---|
-| **No native `enum` keyword** | Go uses named types + `const` blocks to simulate enums. |
-| **`iota`** | Auto-incrementing identifier, resets to `0` at each new `const` block, increments by 1 per line. |
-| **Type safety** | A named type like `OrderStatus` prevents accidentally passing an unrelated `int`. |
-| **Int enums** | Compact and fast, but not human-readable unless you add a `String()` method. |
-| **String enums** | Human-readable by default, but use more memory and don't get auto-increment benefits. |
-| **Stringer interface** | Implementing `String() string` lets `fmt` package print custom, readable output automatically. |
-
----
-
-## Possible Extensions
-
-1. **Add a `String()` method** to `OrderStatus` as shown above for readable debug/log output.
-2. **Add validation**: a function like `func (s OrderStatus) IsValid() bool` to check if a value falls within the defined range.
-3. **Use `iota` with bit-shifting** for flag-style enums (e.g., `1 << iota`) when values need to be combined with bitwise OR.
-4. **JSON marshaling**: implement `MarshalJSON`/`UnmarshalJSON` on `OrderStatus` so it serializes as `"Prepared"` instead of `2` in APIs.
-5. **Generate with `stringer` tool**: run `go install golang.org/x/tools/cmd/stringer@latest` and add `//go:generate stringer -type=OrderStatus` to auto-generate the `String()` method instead of writing it by hand.
-6. **Combine both patterns**: keep `OrderStatus` as the canonical `int` type internally (efficient storage/comparison) but always expose it via `String()` for external-facing output — this is the most common idiomatic Go pattern.
-
----
-
-*This README was generated to document and explain the accompanying Go source file for future review.*
