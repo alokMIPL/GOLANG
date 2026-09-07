@@ -89,4 +89,17 @@ func main() {
 	myOrderStruct := newOrder("1", 20.34, "Paid")
 	fmt.Println("myOrder3 of Struct by using Constructor", myOrderStruct)
 	// Output = myOrder3 of Struct by using Constructor &{1 20.34 Paid {0 0 <nil>}}
+
+	// If we want to use struct only one time then we can use anonymous struct
+	language := struct {
+		name string
+		age  int
+	}{
+		name: "Golang",
+		age:  10,
+	}
+
+	fmt.Println(language)
+	// Output = {Golang 10}
+
 }
