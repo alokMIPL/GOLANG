@@ -2,15 +2,9 @@
 
 This project demonstrates the fundamentals of **structs** in Go, including:
 
-- Defining a struct
-- Adding methods with **pointer receivers** vs **value receivers**
-- Writing a **constructor function**
-- Creating **anonymous structs**
-- Zero values for uninitialized fields
-
 ---
 
-## 📦 What is a Struct?
+## What is a Struct?
 
 A `struct` in Go is basically a custom data structure — a way to group related fields together under one type. It's similar to a "class" (without inheritance) in other languages.
 
@@ -27,7 +21,7 @@ Here, `order` groups four fields: `id`, `amount`, `status`, and `createdAt`.
 
 ---
 
-## 🔧 Methods on Structs (Receivers)
+## Methods on Structs (Receivers)
 
 In Go, you attach functions to a struct using a **receiver**. This is how you "connect" a function to a struct type.
 
@@ -54,7 +48,7 @@ func (o order) getAmount() float32 {
 - Used when you only want to **read** data, not modify it.
 - Go passes a **copy** of the struct into the method, so any changes made inside won't affect the original.
 
-### 📌 Rule of Thumb
+### Rule of Thumb
 
 | Receiver Type | Use When | Effect |
 |---|---|---|
@@ -63,7 +57,7 @@ func (o order) getAmount() float32 {
 
 ---
 
-## 🏗️ Constructor Pattern in Go
+## Constructor Pattern in Go
 
 Go doesn't have built-in constructors like other OOP languages. Instead, the convention is to write a regular function (usually prefixed with `new`) that returns a pointer to the struct:
 
@@ -90,7 +84,7 @@ This returns a **pointer** to a newly created `order`, which is idiomatic in Go 
 
 ---
 
-## 🧩 Zero Values
+## Zero Values
 
 If a struct field isn't explicitly set, Go automatically assigns it a **zero value** based on its type:
 
@@ -106,7 +100,7 @@ This is why `createdAt` shows `{0 0 <nil>}` when it isn't explicitly initialized
 
 ---
 
-## 🕶️ Anonymous Structs
+## Anonymous Structs
 
 If you only need a struct **once** and don't want to formally define a named type, you can use an anonymous struct:
 
@@ -127,7 +121,7 @@ This is useful for quick, one-off data groupings — for example, temporary API 
 
 ---
 
-## 🖥️ Full Code
+## Full Code
 
 ```go
 package main
@@ -233,14 +227,3 @@ func main() {
 
 }
 ```
-
----
-
-## 🔑 Key Takeaways
-
-1. **Structs** group related fields into a single custom type.
-2. **Pointer receivers** (`*order`) let a method modify the original struct.
-3. **Value receivers** (`order`) work on a copy — safe for read-only operations.
-4. Go has no native `constructor` keyword — the convention is a `newX()` function returning a pointer.
-5. Uninitialized fields get **zero values** automatically.
-6. **Anonymous structs** are handy for quick, single-use data structures.
