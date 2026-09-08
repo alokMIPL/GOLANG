@@ -33,6 +33,11 @@ func printGenericScopedSlice[T int | string](items []T) {
 	}
 }
 
+// Now Stack
+type stack struct {
+	elements []int
+}
+
 func main() {
 
 	// It Print the int Slice
@@ -73,5 +78,16 @@ func main() {
 	// printGenericScopedSlice(decimalNumber)
 
 	// Same for other data Types like float64, bool, etc. we can not use them in the scope generics function, beacuse we only declare INT and STRING in the scope generics function. So, if we try to use any other type then it will give an error.
+
+	fmt.Println("*************")
+
+	fmt.Println("Now Stack")
+
+	// Now Stack
+	myStack := stack{
+		elements: []int{1, 2, 3},
+	}
+
+	fmt.Println(myStack)
 
 }
