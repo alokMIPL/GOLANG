@@ -37,10 +37,10 @@ func main() {
 
 A `sync.WaitGroup` is essentially a **counter** with three operations:
 
-| Method | What it does |
-|---|---|
-| `wg.Add(n)` | Increases the counter by `n` |
-| `wg.Done()` | Decreases the counter by 1 (shorthand for `wg.Add(-1)`) |
+| Method      | What it does                                               |
+| ----------- | ---------------------------------------------------------- |
+| `wg.Add(n)` | Increases the counter by `n`                               |
+| `wg.Done()` | Decreases the counter by 1 (shorthand for `wg.Add(-1)`)    |
 | `wg.Wait()` | Blocks the calling goroutine until the counter reaches `0` |
 
 > ⚠️ **Important:** `WaitGroup` must always be passed by **pointer** (`*sync.WaitGroup`), not by value. If each goroutine received its own copy, calling `Done()` would decrement a copy's counter instead of the real one `main()` is watching — causing `wg.Wait()` to block **forever**.
@@ -97,7 +97,7 @@ Right after the loop, the code calls:
 wg.Wait()
 ```
 
-**Important:** this line runs **immediately** — right after the loop ends, *not* after all goroutines are done. At the moment it's called, the counter could still be `11`, or `9`, or anything — some goroutines may not have even started yet.
+**Important:** this line runs **immediately** — right after the loop ends, _not_ after all goroutines are done. At the moment it's called, the counter could still be `11`, or `9`, or anything — some goroutines may not have even started yet.
 
 What `wg.Wait()` does is:
 
@@ -131,11 +131,11 @@ the instant counter=0:
 
 ## Summary
 
-| Step | What happens |
-|---|---|
-| `wg.Add(1)` × 11 | Counter goes from 0 → 11, once per goroutine launched |
-| 11 goroutines run concurrently | Each does its work, then calls `Done()` when finished |
-| `wg.Done()` × 11 | Counter decreases by 1 each time a goroutine finishes |
-| `wg.Wait()` | Blocks `main()` until counter hits 0 — i.e., **all** goroutines have completed |
+| Step                           | What happens                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| `wg.Add(1)` × 11               | Counter goes from 0 → 11, once per goroutine launched                          |
+| 11 goroutines run concurrently | Each does its work, then calls `Done()` when finished                          |
+| `wg.Done()` × 11               | Counter decreases by 1 each time a goroutine finishes                          |
+| `wg.Wait()`                    | Blocks `main()` until counter hits 0 — i.e., **all** goroutines have completed |
 
 **One-sentence takeaway:** `wg.Wait()` doesn't wait for zero to "arrive" and then react — it's already sitting there frozen, and it only unfreezes at the exact moment the counter reaches zero.
