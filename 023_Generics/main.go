@@ -36,6 +36,9 @@ func printGenericScopedSlice[T int | string](items []T) {
 func main() {
 
 	// It Print the int Slice
+
+	fmt.Println("Printing the int Slice")
+
 	nums := []int{1, 2, 3}
 	printSlice(nums)
 
@@ -43,20 +46,32 @@ func main() {
 
 	// Now Print the string Slice
 	names := []string{"GOLANG", "JS", "SQL"}
+	fmt.Println("Printing the string Slice")
 	printStringSlice(names)
 
 	// Now Print the string Slice using generics
 	fmt.Println("*************")
 	printGenericSlice(nums)
+	fmt.Println("Printing the int Slice by using generics")
 	fmt.Println("*************")
 	// Now Print the string Slice using generics
 	printGenericSlice(names)
+	fmt.Println("Printing the string Slice by using generics")
 
-	// Now Print the string Slice using generics
+	// Now Print the string Slice using Scope generics
 	fmt.Println("*************")
-	printGenericSlice(nums)
+	printGenericScopedSlice(nums)
+	fmt.Println("Printing the int Slice by using Scope generics")
 	fmt.Println("*************")
-	// Now Print the string Slice using generics
-	printGenericSlice(names)
+	// Now Print the string Slice using Scope generics
+	printGenericScopedSlice(names)
+	fmt.Println("Printing the string Slice by using Scope generics")
+
+	// In Scope generics we can use only int and string, if we try to use any other type then it will give an error.
+
+	// decimalNumber := []float32{1.9, 2.5, 3.3}
+	// printGenericScopedSlice(decimalNumber)
+
+	// Same for other data Types like float64, bool, etc. we can not use them in the scope generics function, beacuse we only declare INT and STRING in the scope generics function. So, if we try to use any other type then it will give an error.
 
 }
