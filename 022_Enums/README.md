@@ -108,20 +108,20 @@ Notice that `changeOrderStatus(Prepared)` prints `2`, **not** `"Prepared"`. This
 - `OrderStatus` is just an `int` under the hood.
 - `fmt.Println` doesn't know how to convert `2` back into the label `"Prepared"` unless you tell it how (see [Suggested Improvement](#suggested-improvement-stringer-pattern) below).
 
-Meanwhile, `changeOrderStatusString(PreparedString)` prints `Prepared` directly, because the underlying value *is* the string `"Prepared"`.
+Meanwhile, `changeOrderStatusString(PreparedString)` prints `Prepared` directly, because the underlying value _is_ the string `"Prepared"`.
 
 ---
 
 ## Comparing the Two Approaches
 
-| | **`iota` (int-based)** | **String-based** |
-|---|---|---|
-| Storage size | Small (int) — more memory efficient | Larger (string) |
-| Readability when printed | Poor by default (prints raw number) | Good (prints readable text) |
-| Performance | Faster comparisons (`int` comparison) | Slightly slower (`string` comparison) |
-| Reordering safety | Risky — inserting a value in the middle shifts all subsequent values | Safe — each value is explicit and independent |
-| Common use case | Internal state machines, status codes, flags | Logging, APIs, serialization (JSON), debugging |
-| Requires extra work for readable output | Yes (need a `String()` method) | No — already human-readable |
+|                                         | **`iota` (int-based)**                                               | **String-based**                               |
+| --------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------- |
+| Storage size                            | Small (int) — more memory efficient                                  | Larger (string)                                |
+| Readability when printed                | Poor by default (prints raw number)                                  | Good (prints readable text)                    |
+| Performance                             | Faster comparisons (`int` comparison)                                | Slightly slower (`string` comparison)          |
+| Reordering safety                       | Risky — inserting a value in the middle shifts all subsequent values | Safe — each value is explicit and independent  |
+| Common use case                         | Internal state machines, status codes, flags                         | Logging, APIs, serialization (JSON), debugging |
+| Requires extra work for readable output | Yes (need a `String()` method)                                       | No — already human-readable                    |
 
 ---
 

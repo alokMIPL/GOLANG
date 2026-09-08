@@ -136,13 +136,12 @@ Breakfast ready!
 - `main()` immediately moves to `fmt.Println("Breakfast ready!")`, likely printing it **before** the other two even run.
 - This is the core idea: goroutines run **independently and concurrently**, and you don't control their exact timing.
 
-
 ## The Main Reasons People Use Goroutines
 
-| Reason | Example |
-|---|---|
-| **Speed up independent tasks** | Fetching data from 3 different APIs at once instead of one-by-one |
-| **Handle many things simultaneously** | A web server handling thousands of client requests concurrently |
-| **Avoid blocking on slow I/O** | Reading a file or querying a database while still doing other work |
-| **Background work** | Logging, sending emails, cleanup tasks — things that don't need to hold up the main flow |
-| **Cheap concurrency at scale** | You can spawn thousands/millions of goroutines without the memory/performance cost of real OS threads |
+| Reason                                | Example                                                                                               |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Speed up independent tasks**        | Fetching data from 3 different APIs at once instead of one-by-one                                     |
+| **Handle many things simultaneously** | A web server handling thousands of client requests concurrently                                       |
+| **Avoid blocking on slow I/O**        | Reading a file or querying a database while still doing other work                                    |
+| **Background work**                   | Logging, sending emails, cleanup tasks — things that don't need to hold up the main flow              |
+| **Cheap concurrency at scale**        | You can spawn thousands/millions of goroutines without the memory/performance cost of real OS threads |

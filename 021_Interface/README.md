@@ -6,7 +6,7 @@ This project demonstrates how Go **interfaces** enable polymorphism and dependen
 
 This is a classic **"program to an interface, not an implementation"** example. Instead of hardcoding a specific payment gateway inside the `payment` struct, the struct holds a `paymenter` interface field. This means:
 
-- The `payment` struct doesn't need to know *which* gateway it's using.
+- The `payment` struct doesn't need to know _which_ gateway it's using.
 - New gateways can be added without modifying `payment` at all.
 - Swapping gateways (e.g., for testing) is as simple as changing which struct you assign to the interface field.
 
@@ -51,7 +51,7 @@ type payment struct {
 ```
 
 - Instead of storing a concrete gateway (like `stripe` or `razorpay` directly), it stores the `paymenter` **interface type**.
-- This means `payment` can hold *any* value that satisfies `paymenter` — that's the whole point of using an interface here.
+- This means `payment` can hold _any_ value that satisfies `paymenter` — that's the whole point of using an interface here.
 
 ### 3. The `makePayment` Method
 
@@ -148,8 +148,8 @@ func (p payment) makePayment(amount float32) {
 
 This defeats the purpose of the `paymenter` interface. No matter which gateway you configure via `payment.gateway`, you'll **always** also trigger `razorpay` and `stripe` payments. That means:
 
-- You can never test with *only* `fakepayment`.
-- You can never process a payment through *only* PayPal.
+- You can never test with _only_ `fakepayment`.
+- You can never process a payment through _only_ PayPal.
 - Every payment silently triggers three gateway calls instead of one.
 
 This is very likely a leftover from earlier iterations of the code before the interface was introduced, and it should be removed.
