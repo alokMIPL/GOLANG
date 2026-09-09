@@ -28,6 +28,24 @@ func sum(result chan int, num1 int, num2 int) {
 	result <- numResult
 }
 
+// 5. We can do waitGroup functionality by using CHANNEL also.
+func task(done chan bool) {
+
+	// Here we use difer function, it run when all the take is completed. If function give error then also it run.
+	defer func() { done <- true }()
+	fmt.Println("Processing...")
+}
+
+// 6. Email sender by CHANNEL
+
+func emailSender(emailChan chan string, emailDone chan bool) {
+	defer func() { emailDone <- true }()
+	for email := range emailChan {
+		fmt.Println("Sending email to", email)
+		time.Sleep(time.Second)
+	}
+}
+
 func main() {
 
 	// 1. DeadLock Example ************
@@ -66,12 +84,48 @@ func main() {
 
 	// 4. Here we receive data from function to CHANNEL. ************
 
-	result := make(chan int)
+	// result := make(chan int)
+	// go sum(result, 4, 5)
+	// res := <-result
+	// fmt.Println(res)
 
-	go sum(result, 4, 5)
+	// 5. We can do waitGroup functionality by using CHANNEL also. ************
 
-	res := <-result
+	done := make(chan bool)
+	go task(done)
+	<-done
+	// here program comes and block. Basically here function ends.
 
-	fmt.Println(res)
+	// Now 6. ************
+	// In earlier CHANNEL form 1 to 5, the condition is when we only send one data at a time, and wheneve the data not received then we not able to send the new data into that CHANNEL.
+	// So there we called NON-BUFFER CHANNEL
+
+	// Now Buffer CHANNEL
+	// In Buffer channel we can send limited amoun of data without blocking.
+
+	// Suppose we can create a channel for email system
+
+	emailChan := make(chan string, 100)
+	emailDone := make(chan bool)
+
+	go emailSender(emailChan, emailDone)
+	/*
+		Here we write 100 that means in buffer we have a space of sending 100 items.
+		So, up to 100 this will work and no DEADLOCK happen. But if we increase the value form more than 100 then it start the DEADLOCK.
+	*/
+
+	// we dont generate our email like this
+	// emailChan <- "1@example.com"
+	// emailChan <- "2@example.com"
+	// fmt.Println(<-emailChan)
+	// fmt.Println(<-emailChan)
+
+	for i := 0; i < 100; i++ {
+		emailChan <- fmt.Sprintf("%d@gmail.com", i)
+	}
+
+	fmt.Println("done sending...")
+
+	<-emailDone
 
 }
