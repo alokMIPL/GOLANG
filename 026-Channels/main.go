@@ -120,11 +120,13 @@ func main() {
 	// fmt.Println(<-emailChan)
 	// fmt.Println(<-emailChan)
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 5; i++ {
 		emailChan <- fmt.Sprintf("%d@gmail.com", i)
 	}
 
 	fmt.Println("done sending...")
+
+	close(emailChan)
 
 	<-emailDone
 
