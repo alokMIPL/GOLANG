@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"time"
 )
 
@@ -11,14 +10,22 @@ import (
 // DEADLOCK
 // A deadlock is a situation where a program (or a set of goroutines/threads) gets stuck forever, because everyone involved is waiting on something that will never happen.
 
+// 2. Basic Channel
 func processNum(num chan int) {
 	fmt.Println("Processing Number", <-num)
 }
 
+// 3. Sending Data to Channels
 func processNumLoop(numChan chan int) {
 	for num := range numChan {
 		fmt.Println("Processing Number", num)
 	}
+}
+
+// 4. Here we receive data from function to CHANNEL
+func sum(result chan int, num1 int, num2 int) {
+	numResult := num1 + num2
+	result <- numResult
 }
 
 func main() {
@@ -47,13 +54,24 @@ func main() {
 	time.Sleep(time.Second * 2)
 
 	// 3. Channel Example by using a function to process the number. ************
-	numChan := make(chan int)
 
-	go processNumLoop(numChan)
+	// numChan := make(chan int)
+	// go processNumLoop(numChan)
 
-	// We sent random number to channel, So we use loop and ran function.
-	for {
-		numChan <- rand.Intn(100)
-	}
+	// We sent random number to channel, So we use loop and rand function.
+
+	// for {
+	// 	numChan <- rand.Intn(100)
+	// }
+
+	// 4. Here we receive data from function to CHANNEL. ************
+
+	result := make(chan int)
+
+	go sum(result, 4, 5)
+
+	res := <-result
+
+	fmt.Println(res)
 
 }
