@@ -184,4 +184,27 @@ func main() {
 	reader := bufio.NewReader(sourceFile)
 	writer := bufio.NewWriter(destFile)
 
+	for {
+		b, err := reader.ReadByte()
+
+		if err != nil {
+			if err.Error() != "EOF" {
+				panic(err)
+			}
+			break
+		}
+
+		error := writer.WriteByte(b)
+		if err != nil {
+			panic(error)
+		}
+	}
+
+	// At end after this loop, If any data left we flush the data.
+	// So we use writer.Flush()
+
+	writer.Flush()
+
+	fmt.Println("Writting to new file Succesfully.")
+
 }
