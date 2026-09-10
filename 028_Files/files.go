@@ -207,7 +207,14 @@ func main() {
 
 	fmt.Println("Writting to new file Succesfully.")
 
-	// 6 Now How to Copy one file data to another by using STREAMING method ****************************************
-	// Baiscally Transfer data from eample to example2
+	// 6. Now How to Copy one file data to another file ****************************************
+
+	// 7. How to Delete a file
+
+	er := os.Remove("example2.txt")
+	if err != nil {
+		panic(er)
+	}
+	fmt.Println("File Deleted Succesfully...")
 
 }
