@@ -34,6 +34,12 @@ func (p *post) inc(wg *sync.WaitGroup) {
 
 	// So we move the p.mu.Unlock() to defer() function.
 	//  As we know that either the function run or give error or any deadlock condition the defer function run at END of that function.
+
+	// Never Lock the Whole function or logic by MUTEX, it's a bad practice
+	// Only lock that particular line that perform modification.
+
+	// Sometime MUTEX careate a bottleNeck situation.
+
 }
 
 func main() {
