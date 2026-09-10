@@ -145,4 +145,14 @@ func main() {
 		fmt.Println(fi.Name(), fi.IsDir())
 	}
 
+	// 4. Create a File ****************************************
+
+	f3, err := os.Create("example2.txt")
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	f3.WriteString("Hi this is GOLANG file ")
+
 }
