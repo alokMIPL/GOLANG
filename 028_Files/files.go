@@ -211,10 +211,10 @@ func main() {
 
 	// 7. How to Delete a file
 
-	er := os.Remove("example2.txt")
-	if err != nil {
-		panic(er)
-	}
-	fmt.Println("File Deleted Succesfully...")
+	// er := os.Remove("example2.txt")
+	// if er != nil {
+	// 	panic(er)
+	// }
+	// fmt.Println("File Deleted Succesfully...")
 
 }
