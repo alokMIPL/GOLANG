@@ -61,6 +61,14 @@ func main() {
 	fmt.Println("File or Folder = ", fileInfo.IsDir())
 	fmt.Println("File Permissions = ", fileInfo.Mode())
 
+	/* Output =
+	FileName =  example.txt
+	FileSize =  12
+	File Modified Time Last Time =  2026-09-10 10:13:01.5497977 +0530 IST &{32 {3635673320 31277278} {3697597689 31277278} {3697597689 31277278} 0 12}
+	File or Folder =  false
+	File Permissions =  -rw-rw-rw-
+	*/
+
 	// 2. File Read ****************************************
 
 	// 2.1 File Read by classical way ****************************************
@@ -87,23 +95,25 @@ func main() {
 		fmt.Println("Data from file read = ", d, string(buf[i]))
 	}
 
-	/*
-			Data from file read =  12 H
-		Data from file read =  12 e
-		Data from file read =  12 l
-		Data from file read =  12 l
-		Data from file read =  12 o
-		Data from file read =  12
-		Data from file read =  12 G
-		Data from file read =  12 O
-		Data from file read =  12 L
-		Data from file read =  12 A
-		Data from file read =  12 N
-		Data from file read =  12 G
+	/* Output =
+	Data from file read =  12 H
+	Data from file read =  12 e
+	Data from file read =  12 l
+	Data from file read =  12 l
+	Data from file read =  12 o
+	Data from file read =  12
+	Data from file read =  12 G
+	Data from file read =  12 O
+	Data from file read =  12 L
+	Data from file read =  12 A
+	Data from file read =  12 N
+	Data from file read =  12 G
 	*/
 
 	// 2.2 File Read by ReadFile method ****************************************
 
+	// We don't use ReadFile everytime because it load all content of that file once at a time in memory.
+	// If file is small then it is OK but of large file then that file occupy more space in menory and that create a problem for application as well as machine.
 	f2, err := os.ReadFile("example.txt")
 	if err != nil {
 		panic(err)
@@ -112,5 +122,27 @@ func main() {
 	fmt.Println("Read file data by ReadFile Method = ", string(f2))
 
 	// Output = Read file data by ReadFile Method =  Hello GOLANG
+
+	// 2.3 What if we have Big File How we Read it.
+	// For that we use STREAMING method in GOLANG
+	// We discuss this method in future.
+	//  ****************************************
+
+	// 3 Folder Read ****************************************
+	// dir, err := os.Open(".")
+	// this is current directory
+	dir, err := os.Open("../")
+	// this is one previous directory
+	if err != nil {
+		panic(err)
+	}
+
+	defer dir.Close()
+
+	folderInfo, err := dir.ReadDir(-1)
+
+	for _, fi := range folderInfo {
+		fmt.Println(fi.Name(), fi.IsDir())
+	}
 
 }
