@@ -19,8 +19,21 @@ type post struct {
 }
 
 func (p *post) inc(wg *sync.WaitGroup) {
-	defer wg.Done()
+
+	defer func() {
+		p.mu.Unlock()
+		wg.Done()
+	}()
+	// Here modification happen so, we use mutex lock here for views value
+	p.mu.Lock()
 	p.views += 1
+	// after this p.iews += 1 the operation complete. So, now views resource should be unlock
+	// p.mu.Unlock()
+
+	// we can write Unlock() below this resource but what happen if that resource get any kind of error, then this task never complete and our VIEWS resource STUCK in LOCK for lifetime.
+
+	// So we move the p.mu.Unlock() to defer() function.
+	//  As we know that either the function run or give error or any deadlock condition the defer function run at END of that function.
 }
 
 func main() {
