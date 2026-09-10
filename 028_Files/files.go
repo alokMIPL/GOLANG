@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 )
@@ -169,6 +170,18 @@ func main() {
 		panic(err)
 	}
 
-	defer f.Close()
+	defer sourceFile.Close()
+
+	destFile, err := os.Create("example3.txt")
+	if err != nil {
+		panic(err)
+	}
+
+	defer destFile.Close()
+
+	// For Using STREAMING FASHION, We have a inbuild package bufIo
+
+	reader := bufio.NewReader(sourceFile)
+	writer := bufio.NewWriter(destFile)
 
 }
