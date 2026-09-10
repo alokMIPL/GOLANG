@@ -147,18 +147,28 @@ func main() {
 
 	// 4. Create a File ****************************************
 
-	f3, err := os.Create("example2.txt")
+	f4, err := os.Create("example2.txt")
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
+	defer f4.Close()
 
-	f3.WriteString("Hi this is GOLANG file")
+	f4.WriteString("Hi this is GOLANG file")
 
-	// If we run the same line f3.WriteString("Hi this is GOLANG file") then it bydefault APPEND means add then new item into the older one.
+	// If we run the same line f4.WriteString("Hi this is GOLANG file") then it bydefault APPEND means add then new item into the older one.
 
-	f3.WriteString("This is my new line")
+	f4.WriteString("This is my new line")
 
 	// 4.1 Now How to replace the new Text with another ****************************************
+
+	// 5 Now How to transfer one file data to another by using STREAMING method ****************************************
+	// Baiscally Trqansfer data from eample to example2
+
+	sourceFile, err := os.Open("example.txt")
+	if err != nil {
+		panic(err)
+	}
+
+	defer f.Close()
 
 }
