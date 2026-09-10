@@ -153,6 +153,12 @@ func main() {
 	}
 	defer f.Close()
 
-	f3.WriteString("Hi this is GOLANG file ")
+	f3.WriteString("Hi this is GOLANG file")
+
+	// If we run the same line f3.WriteString("Hi this is GOLANG file") then it bydefault APPEND means add then new item into the older one.
+
+	f3.WriteString("This is my new line")
+
+	// 4.1 Now How to replace the new Text with another ****************************************
 
 }
