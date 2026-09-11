@@ -5,11 +5,16 @@ import (
 
 	"github.com/alok/podcast/auth"
 	"github.com/alok/podcast/user"
+	"github.com/fatih/color"
 )
 
+// Command for custom packages
 // go mod init github.com/alok/podcast
 
-// GOLANG only compile those file whioch have change not other files.
+// command for third party packages
+// go get github.com/fatih/color
+
+// GOLANG only compile those file which have change not other files.
 
 func main() {
 	auth.LoginWithCredentials("alok", "kola")
@@ -23,6 +28,8 @@ func main() {
 
 	fmt.Println(user.Email)
 	fmt.Println(user.Name)
+
+	color.Red(user.Email)
 
 	// In GOLANG there are various packages but if we want to install third party packages then we can do that also by using thirt part packages library
 
