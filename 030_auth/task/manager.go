@@ -35,6 +35,7 @@ func (m *Manager) RunAll(ctx context.Context, numWorkers int) []*Task {
     taskList := make([]*Task, len(m.tasks))
     copy(taskList, m.tasks)
     m.mu.Unlock()
+		
 
     jobs := make(chan *Task, len(taskList))
     results := make(chan *Task, len(taskList))
