@@ -18,6 +18,7 @@ func printStringSlice(items []string) {
 // See in both func printSlice and printStringSlice, we are doing the same thing, but the only difference is the type of slice. So, we can use generics to avoid this duplication of code.
 
 func printGenericSlice[T any](items []T) {
+
 	// In place of any we can use interface{} also, but any is more readable and easy to understand.
 	for _, item := range items {
 		fmt.Println(item)
