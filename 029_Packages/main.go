@@ -12,8 +12,7 @@ import (
 // go mod init github.com/alok/podcast
 
 // command for third party packages
-// go get github.com/fatih/color
-
+// go get "package url"
 // GOLANG only compile those file which have change not other files.
 
 func main() {
@@ -29,7 +28,7 @@ func main() {
 	fmt.Println(user.Email)
 	fmt.Println(user.Name)
 
-	color.Red(user.Email)
+	color.Green(user.Email)
 
 	// In GOLANG there are various packages but if we want to install third party packages then we can do that also by using thirt part packages library
 
