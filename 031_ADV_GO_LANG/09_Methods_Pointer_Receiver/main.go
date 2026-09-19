@@ -21,3 +21,9 @@ func main() {
 func (u *User) Birthday() {
 	u.Age++
 }
+
+/*
+Output =
+Before Methods Pointer Receiver 24
+After Methods Pointer Receiver 25
+*/
