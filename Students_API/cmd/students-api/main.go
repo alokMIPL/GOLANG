@@ -47,6 +47,7 @@ func main() {
 		if err != nil {
 			log.Fatal("Failed to start server")
 		}
+
 	}()
 
 	<-done
