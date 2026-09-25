@@ -45,3 +45,7 @@ func main() {
 	fmt.Println(data.Fact, data.Length)
 
 }
+
+/*
+Output = A cats field of vision is about 185 degrees. 44
+*/
