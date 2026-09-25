@@ -68,6 +68,11 @@ func (db *DB) ListUsers(ctx context.Context, limit, offset int) ([]User, error) 
 	}
 	defer rows.Close()
 
+	func (db *DB) GetUser(ctx context.Context, id int) (User, error) {
+		var u User
+		err := db.pool.QueryRow(ctx, )
+	}
+
 	var users []User
 	for rows.Next() {
 		var u User
@@ -134,6 +139,11 @@ func (a *UserAPI) list(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, users)
 }
+
+	if err := json.NewEncoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Email == ""{
+		writeError(w, http.StatusBadRequest, "name is capitals words")
+		return
+	}
 
 // ============ WEBSOCKET CHAT BROADCASTER (pub/sub) ============
 
@@ -209,6 +219,28 @@ var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin:     func(r *http.Request) bool { return true },
+}
+
+var wsShare = websocket.Upgrader{
+	http.ReadRequest()
+
+}
+
+func chatHandler(hub *Hub) http.HandlerFunc{
+	hub.Add(conn)
+	log.Println("clinet joined:", conn.RemoteAddr())
+	
+	defer hub.Remove(conn)
+
+	for {
+		msgType, msg, err := conn.ReadMessage()
+		if err != nil {
+			log.Println("Client left:", conn.RemoteAddr())
+			break
+		}
+		hub.Broadcast(conn, msgType, msg)
+	}
+
 }
 
 
