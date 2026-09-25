@@ -71,6 +71,22 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 
 	dec := json.NewDecoder(r.Body)
 	// now we create a variable `dec` that have a `json.NewDecoder(r.Body)`
+	// the fucntion of `json.NewDecoder()` is only job is to wrap r.Body inside a new Decoder.
+	// and then stored the NewDecoder in dec variable.
+
+	// Now in next line `dec.Decode(&req)` this actually decode the (r.Body)
+	// is the method that does the real work: pulls bytes from r.Body, parses them as JSON.
+
+	/* **** REMEMBER So: NewDecoder() function = "set up the tool." Decode() = "actually use the tool to do the parsing." Two separate steps, two separate lines.
+
+	dec := json.NewDecoder(r.Body)   // dec = the tool/machine that CAN decode
+	dec.Decode(&req)                 // req = where the DECODED RESULT actually ends up
+
+	*/
+
+	// Rought way to handle decode value
+	dec := json.NewDecoder(r.Body)
+	// now we create a variable `dec` that have a `json.NewDecoder(r.Body)`
 
 	err := dec.Decode(&req)
 
