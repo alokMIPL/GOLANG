@@ -68,3 +68,38 @@ func main() {
 	fmt.Println(err)
 
 }
+
+/*
+
+When we test this url `http://localhost:5000/test`
+
+1. If we not pass or post anything then we get this error.
+ {
+    "error": "Invalid json format",
+    "ok": "false"
+}
+
+2. If we pass other method then POST then we get this error.
+{
+    "error": "Only post is allowed",
+    "ok": "false"
+}
+
+3. If we post empty body then we get this error.
+{
+    "error": "Name must not be empty",
+    "ok": "false"
+}
+
+4. If we post evetything correct then we get this Output.
+
+{
+    "Ok": "true",
+    "data": {
+        "name": "alok"
+    },
+    "timeStamp": "2026-09-25T04:16:35.8374135Z"
+}
+
+
+*/
