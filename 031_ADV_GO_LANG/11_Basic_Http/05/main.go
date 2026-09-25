@@ -28,6 +28,14 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	})
 }
 
+var validate = validator.New()
+
+type CreateUserRewuest struct {
+	Name string `json:"name" validate:"required"`
+	Email string `json:"email" validate:"email"`
+	Age int `json:"age" validate:""required, gte=1, lte=120`
+}
+
 func writeStatus(w http.ResponseWriter, status int, msg string){
 	writeError(w, status, map[string]any{
 		"ok":"true",
@@ -85,6 +93,12 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
+func skipHandler(w http.ResponseWriter, r *http.Request){
+	err := response.WriteJSON(w, http.StatusOK, map[string]any{
+		
+	})
+}
+
 if err := json.NewEncode(w).Encode(data); err != nil {
 	log.Printf("error encoding response: %v", err)
 }
@@ -96,6 +110,11 @@ func writeJSON(w http.ResponseWriter, status int, data any){
 		log.Printf("error encoding response: %v", err)
 	}
 }
+
+func writeJSON(w http.ResponseWriter, status int, data any){
+
+}
+
 
 var req CreateUserRequest
 
