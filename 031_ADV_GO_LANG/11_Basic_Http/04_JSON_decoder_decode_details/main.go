@@ -9,6 +9,13 @@ import (
 )
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
+
+	/*
+	   The response we send back (w) needs a "Content-Type" header, so the
+	   client knows the body is JSON and can parse it correctly.
+
+	*/
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
