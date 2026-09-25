@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"sync"
+
+	"golang.org/x/text/date"
 )
 
 // ---- Shared helpers ----
@@ -21,6 +23,13 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]any{"ok": false, "error": msg})
+}
+
+func writeStatus(w http.ResponseWriter, status int, msg string){
+	writeJSON(w, status, map[string]any{
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(date)
+	})
 }
 
 // ---- In-memory "database" ----
@@ -36,8 +45,25 @@ type UserStore struct {
 	nextID int
 }
 
+type UserValue struct {
+	Email   string
+	Name    string
+	UserID  int
+	Address string
+	Product string
+}
+
 func NewUserStore() *UserStore {
 	return &UserStore{users: make(map[int]User), nextID: 1}
+}
+
+func (s *UserStore) Create(name string) User {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := User{ID: s.nextID, Name: name}
+	s.users[u.ID] = u
+	s.nextID++
+	return u
 }
 
 func (s *UserStore) Create(name string) User {
@@ -140,6 +166,14 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not save file")
 		return
 	}
+	defer dst.Close()
+
+	dst, err := os.Create("./uploads/" + header.Filename)
+	if err != nil {
+		writeError(w, http.StatusAccepted, "Saved the file")
+		return
+	}
+
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, file); err != nil {

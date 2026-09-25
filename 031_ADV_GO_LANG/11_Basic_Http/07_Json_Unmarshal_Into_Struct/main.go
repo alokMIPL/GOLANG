@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -20,4 +21,7 @@ func main() {
 		fmt.Println(resp.Status)
 		return
 	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+
 }
