@@ -66,16 +66,6 @@ func (s *UserStore) List() []User {
 	return out
 }
 
-func (s *UserStore) Delete(id int) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.users[id]; !ok {
-		return false
-	}
-	delete(s.users, id)
-	return true
-}
-
 // ---- Handlers (CRUD with path params) ----
 
 func usersHandler(store *UserStore) http.HandlerFunc {
