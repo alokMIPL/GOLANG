@@ -95,27 +95,30 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// Optmized way to handle decode value
+	// if err := dec.Decode(&req); err != nil {
+	// 	writeJSON(w, http.StatusBadRequest, map[string]any{
+	// 		"ok":    "false",
+	// 		"error": "Invalid json format",
+	// 	})
+	// 	return
+	// }
 
-	// Rought way to handle decode value
-	dec := json.NewDecoder(r.Body)
-	// now we create a variable `dec` that have a `json.NewDecoder(r.Body)`
-
-	err := dec.Decode(&req)
-
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"ok":    "false",
-			"error": "Json format not correct",
-		})
-		return
-	}
-
+	// Just to remove the extra space from the name string.
 	req.Name = strings.TrimSpace(req.Name)
 
+	// Now validation check
 	if req.Name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"ok":    "false",
 			"error": "Name must not be empty",
+		})
+		return
+	}
+	if req.Age <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":    "false",
+			"error": "Age must be required",
 		})
 		return
 	}
