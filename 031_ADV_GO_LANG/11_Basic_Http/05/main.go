@@ -71,6 +71,18 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
+if err := json.NewEncode(w).Encode(data); err != nil {
+	log.Printf("error encoding response: %v", err)
+}
+
+func writeJSON(w http.ResponseWriter, status int, data any){
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(data); err != nil{
+		log.Printf("error encoding response: %v", err)
+	}
+}
+
 func greetHander(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Only POST is allowed")
@@ -91,7 +103,10 @@ func greetHander(w http.ResponseWriter, r *http.Request) {
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 	}
+}
 
+func writeError(w http.ResponseWriter, status int, msg string){
+	writeJSON(w, )
 }
 
 // ---- Middleware ----
