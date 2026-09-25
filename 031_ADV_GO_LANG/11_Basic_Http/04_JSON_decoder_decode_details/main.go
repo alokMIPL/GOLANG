@@ -33,7 +33,7 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")   // staged, not sent yet
 	w.WriteHeader(status)                                  // ← NOW it's actually sent
 	*/
-
+	w.WriteHeader(status)
 	/*
 		1. json.NewEncoder(w)
 		This creates a new Encoder object, plumbed to write into w (your response). Just like NewDecoder didn't read anything by itself, NewEncoder doesn't write anything by itself yet — it just sets up the tool, connected to its destination (w, in this case, instead of r.Body).
@@ -83,6 +83,18 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	dec.Decode(&req)                 // req = where the DECODED RESULT actually ends up
 
 	*/
+
+	// Rought way to handle decode value
+
+	err := dec.Decode(&req)
+
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":    "false",
+			"error": "Json format not correct",
+		})
+		return
+	}
 
 	// Rought way to handle decode value
 	dec := json.NewDecoder(r.Body)
