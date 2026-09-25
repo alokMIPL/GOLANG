@@ -36,6 +36,13 @@ func main() {
 		Handler: router,
 	}
 
+	serverOK := http.Server{
+		Addr:    cfg.Addr,
+		Handler: router,
+	}
+
+	slog.Info("Server went wrong", slog.String("", cfg.StoragePath))
+
 	slog.Info("Server started", slog.String("address", cfg.Addr))
 
 	done := make(chan os.Signal, 1)
@@ -47,7 +54,7 @@ func main() {
 		if err != nil {
 			log.Fatal("Failed to start server")
 		}
-
+		fmt.Println(serverOK)
 	}()
 
 	<-done

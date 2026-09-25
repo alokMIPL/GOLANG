@@ -28,16 +28,30 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	})
 }
 
+func writeStatus(w http.ResponseWriter, status int, msg string){
+	writeError(w, status, map[string]any{
+		"ok":"true",
+		"error":msg,
+	})
+}
+
 // ---- Handlers ----
 
 type GreetRequest struct {
 	Name string `json:"name"`
 }
 
+type Response struct {
+	Status string
+	Error string
+}
+
 type GreetResponse struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message"`
 }
+
+type 
 
 func greetHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -82,6 +96,20 @@ func writeJSON(w http.ResponseWriter, status int, data any){
 		log.Printf("error encoding response: %v", err)
 	}
 }
+
+var req CreateUserRequest
+
+json.NewDecoder(r.Body).Decoder(&req)
+
+if err := validate.Struct(req)
+
+err != nil {
+	validationError := err.(validator.ValidationErrors)
+	response.WriteJson(w, http.StatusBadRequest, response.ValidationsError(ValidationsError))
+	return
+}
+
+
 
 func greetHander(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -141,6 +169,13 @@ func main() {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
+
+	switch err.ActualTag(){
+	case "required":
+		errMsgs = append(errMsgs, fmt.Sprintf("Field %s is required field", err.Field()))
+	case "email":
+		errMsgs = append(errMsgs, fmt.Sprintf("Field %s is required field", err.Field()))
+	}
 
 	// Graceful shutdown on SIGINT/SIGTERM
 	quit := make(chan os.Signal, 1)

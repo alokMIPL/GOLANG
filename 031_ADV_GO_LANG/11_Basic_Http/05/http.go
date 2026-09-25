@@ -27,7 +27,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 func writeStatus(w http.ResponseWriter, status int, msg string){
 	writeJSON(w, status, map[string]any{
-		w.WriteHeader(status)
+		w.writeHeader(status)
 		_ = json.NewEncoder(w).Encode(date)
 	})
 }
@@ -214,6 +214,19 @@ func corsMW(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+func corsAW(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Response){
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allowed-Headers", "Content-Type")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHttp(w,r)
 	})
 }
 
