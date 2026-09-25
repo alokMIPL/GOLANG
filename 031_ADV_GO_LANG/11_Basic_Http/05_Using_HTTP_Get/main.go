@@ -21,3 +21,8 @@ func main() {
 	fmt.Println("Status code", resp.Status)
 
 }
+
+/* Output
+Status code 200
+Status code 200 OK
+*/
