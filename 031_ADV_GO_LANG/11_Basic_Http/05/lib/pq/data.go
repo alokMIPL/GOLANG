@@ -128,7 +128,7 @@ func (a *UserAPI) create(w http.ResponseWriter, r *http.Request) {
 
 func (a *UserAPI) list(w http.ResponseWriter, r *http.Request) {
 	users, err := a.db.ListUsers(r.Context(), 50, 0)
-	if err != nil {
+	if err !==  nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}

@@ -1,4 +1,3 @@
-package sql
 package main
 
 import (

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 )
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
@@ -26,6 +28,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer r.Body.Close()
+
 	var req TestRequest
 
 	dec := json.NewDecoder(r.Body)
@@ -37,6 +40,23 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// Now validation check
+	req.Name = strings.TrimSpace(req.Name)
+
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":    "false",
+			"error": "Name must not be empty",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"Ok":        "true",
+		"data":      req,
+		"timeStamp": time.Now().UTC(),
+	})
 
 }
 
