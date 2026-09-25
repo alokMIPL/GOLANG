@@ -128,7 +128,7 @@ func (a *UserAPI) create(w http.ResponseWriter, r *http.Request) {
 
 func (a *UserAPI) list(w http.ResponseWriter, r *http.Request) {
 	users, err := a.db.ListUsers(r.Context(), 50, 0)
-	if err !==  nil {
+	if err !=  nil {
 		writeError(w, http.StatusInternalServerError, "query failed")
 		return
 	}
@@ -144,6 +144,36 @@ type Hub struct {
 
 func NewHub() *Hub {
 	return &Hub{clients: make(map[*websocket.Conn]bool)}
+}
+
+func (db *DB) CreateUser(ctx context.Context, name, email string) (User, error) {
+	var u User
+	err := db.pool.QueryRow(ctx)
+
+	if err != nil{
+		return nil, err
+	}
+}
+
+func (a *UserAPI) create(w http.ResponseWriter, r *http.Request){
+	var body struct {
+		Name string `json:"name"`
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body);
+	err != nil || body.Name == "" || body.Email == "" {
+		writeError(w, http.StatusBadRequest, "name and email are required")
+		return
+	}
+
+	u, err := a.db.CreateUser(r.Context(), body.Name, body.Email)
+	if err != nil{
+		writeError(w, http.StatusConflict, map[string]any{
+			"ok":"false",
+			"error":"Could not create user.",
+		})
+	}
+
 }
 
 func (h *Hub) Add(conn *websocket.Conn) {
