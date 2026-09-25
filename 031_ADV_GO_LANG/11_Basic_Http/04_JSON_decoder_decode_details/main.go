@@ -14,9 +14,26 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	   The response we send back (w) needs a "Content-Type" header, so the
 	   client knows the body is JSON and can parse it correctly.
 
+	   To set that header, we first need the header collection of the
+	   response, which we get using w.Header(). That returned object has
+	   a .Set(key, value) method on it, which we use to actually set the
+	   Content-Type header.
+
+	   So the two steps combined into one line:
+	       w.Header().Set("Content-Type", "application/json")
 	*/
 
 	w.Header().Set("Content-Type", "application/json")
+
+	/* `w.WriteHeader(status)`
+	This does two things at once, and both matter:
+	1. It sets the HTTP status code
+	2. It sends/flushes everything staged so far
+
+	w.Header().Set("Content-Type", "application/json")   // staged, not sent yet
+	w.WriteHeader(status)                                  // ← NOW it's actually sent
+	*/
+
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
 }
