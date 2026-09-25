@@ -55,6 +55,7 @@ type TestRequest struct {
 }
 
 func testHandler(w http.ResponseWriter, r *http.Request) {
+	// Here we check the method
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{
 			"ok":    "false",
