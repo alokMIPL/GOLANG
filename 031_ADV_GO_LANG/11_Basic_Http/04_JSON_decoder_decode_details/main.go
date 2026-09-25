@@ -16,6 +16,7 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 
 type TestRequest struct {
 	Name string `json:"name"`
+	Age  int    `json:"age"`
 }
 
 func testHandler(w http.ResponseWriter, r *http.Request) {
@@ -30,18 +31,22 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	var req TestRequest
+	// This `var req TestRequest` provide a container to the r.Body data that comes from post method by clinet.
+	// And it arrange it inside a type struct
 
 	dec := json.NewDecoder(r.Body)
+	// now we create a variable `dec` that have a `json.NewDecoder(r.Body)`
 
-	if err := dec.Decode(&req); err != nil {
+	err := dec.Decode(&req)
+
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"ok":    "false",
-			"error": "Invalid json format",
+			"error": "Json format not correct",
 		})
 		return
 	}
 
-	// Now validation check
 	req.Name = strings.TrimSpace(req.Name)
 
 	if req.Name == "" {
