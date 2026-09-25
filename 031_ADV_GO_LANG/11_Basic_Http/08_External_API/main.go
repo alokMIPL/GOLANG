@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 type CatFactResponse struct {
@@ -64,9 +65,13 @@ func externalHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok": "true",
-		"ok": "true",
-		"ok": "true",
+		"ok":        "true",
+		"timeStamp": time.Now().UTC(),
+		"external": map[string]any{
+			"source": "Catfact.mimja",
+			"fact":   data.Fact,
+			"lenght": data.Lenght,
+		},
 	})
 
 }
