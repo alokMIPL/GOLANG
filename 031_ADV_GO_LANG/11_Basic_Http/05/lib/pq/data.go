@@ -207,6 +207,31 @@ func chatHandler(hub *Hub) http.HandlerFunc {
 	}
 }
 
+func likeHandler(hub *Hub) http.HandlerFunc{
+	return func(w http.ResponseWriter, r *http.Request){
+		conn, err := wsUpgrade.Upgrade(w, r, nil)
+		if err != nil {
+			log.Println("upgrade error:", err)
+			return
+		}
+		hub.Add(conn)
+		log.Println("client joined:", conn.RemoteAddr()
+	
+		defer hub.Remove(conn)
+
+		for {
+			msgType, msg, err := conn.ReadMessage()
+			if err != nil{
+				log.Println("client left:", conn.RemoteAddr())
+				break
+			}
+			hub.Broadcast(conn, msgType, msg)
+		}
+	)
+	}
+}
+
+
 // ============ Shared helpers ============
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
