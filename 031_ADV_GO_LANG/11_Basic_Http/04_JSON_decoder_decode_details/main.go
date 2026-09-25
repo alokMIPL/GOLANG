@@ -34,7 +34,18 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.WriteHeader(status)                                  // ← NOW it's actually sent
 	*/
 
-	w.WriteHeader(status)
+	/*
+		1. json.NewEncoder(w)
+		This creates a new Encoder object, plumbed to write into w (your response). Just like NewDecoder didn't read anything by itself, NewEncoder doesn't write anything by itself yet — it just sets up the tool, connected to its destination (w, in this case, instead of r.Body).
+
+		2. .Encode(data)
+		This is where the actual work happens: it takes data (your map, e.g. {"ok": "false", "error": "..."}), converts it into JSON text, and writes that JSON directly into w — meaning, it streams out to the client as the response body.
+
+		3. _=
+		_ is Go's blank identifier. It means: "a value exists here, but I don't want it — throw it away."
+
+	*/
+
 	_ = json.NewEncoder(w).Encode(data)
 }
 
