@@ -35,12 +35,23 @@ func main() {
 		return
 	}
 
+	// Optional i do for Testing.
+	bodyText := string(bodyBytes)
+	fmt.Println("For Testing", bodyText)
+
 	var data CatFactResponse
 
-	if err := json.Unmarshal(bodyBytes, &data); err != nil {
-		fmt.Println("Json Unmarshal failed.")
+	err = json.Unmarshal(bodyBytes, &data)
+	if err != nil {
+		fmt.Println("Json Unmarshal failed.", err)
 		return
 	}
+
+	// Complex Way
+	// if err := json.Unmarshal(bodyBytes, &data); err != nil {
+	// 	fmt.Println("Json Unmarshal failed.")
+	// 	return
+	// }
 
 	fmt.Println(data.Fact, data.Length)
 
