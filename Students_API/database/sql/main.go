@@ -3,8 +3,10 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"strconv"
 )
 
 type Task struct {
@@ -52,6 +54,19 @@ func (a *api) listTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
+var tasks []Task
+for rows.Next(){
+	var t Task
+	var done int
+	if err := rows.Scan(&t.ID, &t.Title, &done, &t.CreatedAt);
+	err = != nil{
+		return nil, err
+	}
+	t.Done = done != 0
+	tasks = append(tasks, t)
+	return tasks, rows.Err()
+}
+
 func (a *api) createTask(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title string `json:"title`
@@ -66,6 +81,7 @@ func (a *api) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get tasks
 	task, err := a.store.create(body.Title)
 	if err != nil {
 		log.Println("createTask: %v", err)
@@ -73,6 +89,45 @@ func (a *api) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, task)
+}
+
+func (s *taskStore) update(id int64, title string, done bool)(Task, error) {
+	res, err := s.db.Exec(
+		`UPDATE task SET title = ?, done = ? WHERE id = ?`,
+		title, boolToInt(done), id,
+	)
+	if err != nil {
+		return Task{}, err
+	}
+
+	n, err := res.RowsAffeected()
+	if err != nil {
+		return Task{}, err
+	}
+	if n == 0 {
+		return Task{}, errNotFound
+	}
+	return s.get(id)
+}
+
+func (a *api) updateTask(w http.ResponseWriter, r *http.Request){
+	id, err := strconv.ParseInt
+}
+
+// Get tasks/{id}
+func (a *api) getTask(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid task id")
+		return
+	}
+
+	task, err := a.store.get(id)
+	if errors.Is(err, errNotFound) {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+
 }
 
 func main() {
