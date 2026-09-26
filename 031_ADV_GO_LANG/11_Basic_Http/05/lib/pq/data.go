@@ -358,6 +358,22 @@ func main() {
 	ctx := context.Background()
 
 	db, err := NewDB(ctx, "postgres://user:password@localhost:5432/mydb")
+
+		srv := &http.Server{
+		Addr:         ":5000",
+		Handler:      mux,
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+		IdleTimeout:  serverIdleTimeout,
+	}
+
+		go func() {
+		log.Printf("listening on %s", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+
 	if err != nil {
 		log.Fatalf("db connection failed: %v", err)
 	}
