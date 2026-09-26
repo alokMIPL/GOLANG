@@ -41,6 +41,10 @@ func main() {
 
 	var data CatFactResponse
 
+	// json.Unmarshal(bodyBytes, &data) — try to convert the JSON bytes into the data struct.
+	// and store the data in to data variable by the help of `&pointer`.
+	// It converts the raw JSON bytes into a typed Go struct
+
 	err = json.Unmarshal(bodyBytes, &data)
 	if err != nil {
 		fmt.Println("Json Unmarshal failed.", err)

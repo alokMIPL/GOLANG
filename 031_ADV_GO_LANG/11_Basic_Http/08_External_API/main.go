@@ -10,7 +10,7 @@ import (
 
 type CatFactResponse struct {
 	Fact   string `json:"fact"`
-	Lenght string `json:"lenght"`
+	Length string `json:"length"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
@@ -19,12 +19,16 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
+// This fetchCatFact func take nothing in INPUT but return something
+// Now this function return two things CatFactResponse and error
 func fetchCatFact() (CatFactResponse, error) {
 	url := "https://catfact.ninja/fact"
 
+	// Here the res is doing res — a response object containing the status code, headers, and an open stream.
 	res, err := http.Get(url)
 	if err != nil {
 		return CatFactResponse{}, err
+		// when error comes then response in CatFactResponse{} is empty stirng we set, have nothing and only err we get right
 	}
 
 	defer res.Body.Close()
@@ -70,7 +74,7 @@ func externalHandler(w http.ResponseWriter, r *http.Request) {
 		"external": map[string]any{
 			"source": "Catfact.mimja",
 			"fact":   data.Fact,
-			"lenght": data.Lenght,
+			"length": data.Length,
 		},
 	})
 
