@@ -10,7 +10,7 @@ import (
 
 type CatFactResponse struct {
 	Fact   string `json:"fact"`
-	Length string `json:"length"`
+	Length int    `json:"length"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
@@ -72,7 +72,7 @@ func externalHandler(w http.ResponseWriter, r *http.Request) {
 		"ok":        "true",
 		"timeStamp": time.Now().UTC(),
 		"external": map[string]any{
-			"source": "Catfact.mimja",
+			"source": "Catfact.ninja",
 			"fact":   data.Fact,
 			"length": data.Length,
 		},

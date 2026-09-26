@@ -120,7 +120,7 @@ func userByIDHandler(store *UserStore) http.HandlerFunc {
 		id, err := strconv.Atoi(r.PathValue("id"))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid id")
-			return
+			return nil
 		}
 
 		switch r.Method {
