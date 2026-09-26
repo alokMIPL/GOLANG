@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -15,9 +16,37 @@ type Response struct {
 }
 
 const (
+	catFaceURL      = "https://catfact.ninja/fact"
+	upstreamTimeout = 5 * http.DefaultClient.Timeout
+	maxUpstreamBody = 1 << 20
+)
+
+const (
 	Status      = "OK"
 	StatusError = "Error"
 )
+
+type CatFactResponse struct {
+	Fact string `json:"fact"`
+}
+
+type apiResponse struct {
+	OK        bool          `json:"OK"`
+	Timestamp time.Time     `json:"timestamp,omitempty"`
+	Error     string        `json:"error, omitempty"`
+	External  *externalFact `json:"external, omniempty"`
+}
+
+type externalFact struct {
+	Source string `json:"source"`
+	Fact   string `json:"fact"`
+	Length string `json:"length"`
+}
+
+func writeJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+}
 
 func WriteJson(w http.ResponseWriter, status int, data interface{}) error {
 	w.Header().Set("Content-Type", "application/json")

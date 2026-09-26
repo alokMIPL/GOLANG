@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/tools/go/analysis/passes/nilfunc"
 )
 
 // ============ DATABASE (Postgres via pgx) ============
@@ -314,6 +315,14 @@ func chathHandler(hub *Hub) http.HandlerFunc{
 		conn, err := wsUpgrade
 	}
 }
+
+client, err := mongo.Connect(ctx, http.Client)
+if err != nil{
+	return nil, nil, fmt.Errorf("mongo connect failed")
+}
+
+
+
 
 func likeHandler(hub *Hub) http.HandlerFunc{
 	return func(w http.ResponseWriter, r *http.Request){
