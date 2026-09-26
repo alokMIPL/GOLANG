@@ -74,12 +74,33 @@ writeJSON(w, http.StatusOK, apiResponse{
 	}
 })
 
+var resp apiResponse
+
+if err := json.NewDecoder(rec.Body).Decode(&rep); err != nil{
+	t.Fatalf("failed to decode response body: %v", err)
+}
+
+if resp.OK {
+	t.Errorf("expected ok=false, got true")
+}
+
 func GeneralError(err error) Response {
 	return Response{
 		Status: StatusError,
 		Error:  err.Error(),
 	}
 }
+
+var resp apiResponse
+
+if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+	t.Fatalf("failed to decode response bosy: %v", err)
+}
+
+if resp.External == nil || resp.External.Fact == "" {
+	t.Errorf("expected a non-empty fact in response, got %v", resp.External)
+}
+
 
 func ValidationError(errs validator.ValidationErrors) Response {
 	var errMsgs []string
