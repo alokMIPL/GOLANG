@@ -74,6 +74,17 @@ writeJSON(w, http.StatusOK, apiResponse{
 	}
 })
 
+func (r1 * rateLimiter) middleware(next http.Handler) http.Handler{
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
+		key := r.RemoteAddr
+		if !r1.allow(key){
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w,r)
+	})
+}
+
 var resp apiResponse
 
 if err := json.NewDecoder(rec.Body).Decode(&rep); err != nil{
