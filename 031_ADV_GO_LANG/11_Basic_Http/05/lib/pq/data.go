@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -131,6 +133,10 @@ func (a *UserAPI) create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, u)
 }
 
+dunc (u User) Birthday() {
+	u.Age++
+}
+
 func (a *UserAPI) list(w http.ResponseWriter, r *http.Request) {
 	users, err := a.db.ListUsers(r.Context(), 50, 0)
 	if err !=  nil {
@@ -143,6 +149,15 @@ func (a *UserAPI) list(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Email == ""{
 		writeError(w, http.StatusBadRequest, "name is capitals words")
 		return
+	}
+
+	data, err := fetchDataFact()
+	if err != nil{
+		fmt.Println("DEBUG", err)
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":"false",
+			"error":"Not verified to user"
+		})
 	}
 
 // ============ WEBSOCKET CHAT BROADCASTER (pub/sub) ============
@@ -183,7 +198,13 @@ func (a *UserAPI) create(w http.ResponseWriter, r *http.Request){
 			"error":"Could not create user.",
 		})
 	}
+}
 
+var data CatFactResponse
+err = json.Unmarshal(bodyBytes, &data)
+
+if err != nil {
+	return CatFactResponse{}, err
 }
 
 func (h *Hub) Add(conn *websocket.Conn) {
@@ -197,6 +218,12 @@ func (h *Hub) Remove(conn *websocket.Conn) {
 	defer h.mu.Unlock()
 	delete(h.clients, conn)
 	conn.Close()
+}
+
+type Config struct {
+	MongoURL string
+	MongoDB strings
+	ServerPort string
 }
 
 // Broadcast sends a message to every connected client except the sender
