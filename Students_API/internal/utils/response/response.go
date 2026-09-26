@@ -48,13 +48,31 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.WriteHeader(status)
 }
 
+	data, err := fetchCatFact(r.Context())
+	if err := nil{
+		log.Printf("externalHandler: fetchCatFact failed: %v", err)
+		writeJSON(w, http.StatusBadGateway, apiResponse{
+			OK: false,
+			Error:"false to fetch data from upstream"
+		})
+		return
+	}
+
 func WriteJson(w http.ResponseWriter, status int, data interface{}) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-
 	return json.NewEncoder(w).Encode(data)
-
 }
+
+writeJSON(w, http.StatusOK, apiResponse{
+	OK : true,
+	Timestamp: time.Now().UTC(),
+	External: &externalFact{
+		SOurce: "catfact.ninja",
+		Fact : data.Fact,
+		Length: data.Length
+	}
+})
 
 func GeneralError(err error) Response {
 	return Response{
