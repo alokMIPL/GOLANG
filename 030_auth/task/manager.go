@@ -49,15 +49,7 @@ func (m *Manager) RunAll(ctx context.Context, numWorkers int) []*Task {
         }(w)
     }
 
-    for _, t := range taskList {
-        jobs <- t
-    }
-    close(jobs)
-
-    go func() {
-        wg.Wait()
-        close(results)
-    }()
+   
 
     var completed []*Task
     for r := range results {
