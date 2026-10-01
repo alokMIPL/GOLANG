@@ -79,52 +79,59 @@ func NewHandler(opts ...Option) *Handler {
 	return h
 }
 
-func (h *Handler) External(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allowed", http.MethodGet)
-		_ = WriteJSON(w, http.StatusMethodNotAllowed, apiResponse{
-			OK:    false,
-			Error: "method not allowed",
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), upstreamTimeout)
-	defer cancel()
-
-	data, err := h.Fetch(ctx)
-	if err != nil && data == nil {
-		err = errors.New("upstream fetch returned no data")
-	}
-
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	data, err := h.get(r.context())
 	if err != nil {
-		switch {
-		case errors.In(err, context.Canceled):
-			slog.Debug("external: client canceled request", "err", err)
-			return
-		case errors.Is(err, context.DeadlineExceeded):
-			slog.Warn("external: upstream timeed out", "err", err)
-			_ = WriteJSON(w, http.StatusGatewayTimeout, apiResponse{
-				OK:    false,
-				Error: "upstream time out",
-			})
-		default:
-			slog.Error("external: fetch failed", "err", err)
-			_ = WriteJSON(w, http.StatusBadGateway, apiResponse{
-				OK:    false,
-				Error: "failed to fetch data from upstream",
-			})
-		}
+		h.writeError(w, err)
 		return
 	}
 
 	_ = WriteJSON(w, http.StatusOK, apiResponse{
 		OK:        true,
-		Timestamp: time.Now().UTC(),
+		Timestamp: h.now().UTC(),
 		External: &externalFact{
-			Source: "catfact.ninja",
+			Source: factSource,
 			Fact:   data.Fact,
 			Length: data.Length,
 		},
 	})
 }
+
+func (h *Handler) writeError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, context.Canceled):
+		h.log.Debug("external:client cancled request")
+	case errors.Is(err, context.DeadlineExceeded):
+		h.log.Warn("external:upstream time out", "err", err)
+		_ = WriteJSON(w, http.StatusGatewayTimeout, apiResponse{
+			OK: false, Error: "upstream timeout",
+		})
+	default:
+		h.log.Error("external:upstream error", "err", err)
+		_ = WriteJSON(w, http.StatusBadGateway, apiResponse{
+			OK: false, Error: "failed to fetch from upstream",
+		})
+	}
+}
+
+func (h *Handler) get(ctx context.Context) (*CatFactRepsonse, error) {
+	if fact, ok := h.fresh(); ok {
+		return fact, nil
+	}
+
+	ch := h.group.DoChan("fact", func() (any, error) {
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), h.timeout)
+		defer cancel()
+
+		fact, err := h.fetch(fctx)
+		if err != nil && fact == nil {
+			err = errors.New ("upstram ferch failed: " + err.Error())
+		}
+		if err != nil {
+			return nil, err
+		}
+		h.mu.Lock()
+		h.cached, h.fetched = fact, h.now()
+		h.mu.Unlock()
+		return fact, nil
+	})
