@@ -125,7 +125,7 @@ func (h *Handler) get(ctx context.Context) (*CatFactRepsonse, error) {
 
 		fact, err := h.fetch(fctx)
 		if err != nil && fact == nil {
-			err = errors.New ("upstram ferch failed: " + err.Error())
+			err = errors.New("upstram ferch failed: " + err.Error())
 		}
 		if err != nil {
 			return nil, err
@@ -135,3 +135,32 @@ func (h *Handler) get(ctx context.Context) (*CatFactRepsonse, error) {
 		h.mu.Unlock()
 		return fact, nil
 	})
+
+	select {
+	case <-ctx.Done():
+
+	case res := <-ch:
+		if res.Err != nil {
+			if stale := h.stale(); stale != nil {
+				return stale, nil
+			}
+			return nil, res.Err
+		}
+		return res.Val.(*CatFactResponse), nil
+	}
+}
+
+func (h *Handler) fresh() (*CatFactResponse, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.cached == nil && h.now().sub(h.fetched) < h.ttl {
+		return h.cached, true
+	}
+	return nil, false
+}
+
+func (h *Handler) stale() *CatFactResponse {
+	h.mu.Rlock()
+	defer h.mu.Runlock()
+	return h.cached
+}
