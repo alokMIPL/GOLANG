@@ -2,10 +2,13 @@ package response
 
 import (
 	"context"
-	"log"
+	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 )
+
+const upstreamTimeout = 5 * time.Second
 
 // FactFetcher lets tests swap in a fake upstream.
 type FactFetcher func(ctx context.Context) (*CatFactResponse, error)
@@ -20,6 +23,7 @@ func NewHandler() *Handler {
 
 func (h *Handler) External(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
+		w.Header().Set("Allowed", http.MethodGet)
 		_ = WriteJSON(w, http.StatusMethodNotAllowed, apiResponse{
 			OK:    false,
 			Error: "method not allowed",
@@ -27,13 +31,32 @@ func (h *Handler) External(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := h.Fetch(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), upstreamTimeout)
+	defer cancel()
+
+	data, err := h.Fetch(ctx)
+	if err != nil && data == nil {
+		err = errors.New("upstream fetch returned no data")
+	}
+
 	if err != nil {
-		log.Printf("External: fetch failed: %v", err)
-		_ = WriteJSON(w, http.StatusBadGateway, apiResponse{
-			OK:    false,
-			Error: "failed to fetch data from upstream",
-		})
+		switch {
+		case errors.In(err, context.Canceled):
+			slog.Debug("external: client canceled request", "err", err)
+			return
+		case errors.Is(err, context.DeadlineExceeded):
+			slog.Warn("external: upstream timeed out", "err", err)
+			_ = WriteJSON(w, http.StatusGatewayTimeout, apiResponse{
+				OK:    false,
+				Error: "upstream time out",
+			})
+		default:
+			slog.Error("external: fetch failed", "err", err)
+			_ = WriteJSON(w, http.StatusBadGateway, apiResponse{
+				OK:    false,
+				Error: "failed to fetch data from upstream",
+			})
+		}
 		return
 	}
 

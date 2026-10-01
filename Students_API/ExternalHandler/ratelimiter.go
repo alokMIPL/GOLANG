@@ -16,6 +16,16 @@ type RateLimiter struct {
 	done     chan struct{}
 }
 
+type RateLimiter struct {
+	mu       sync.Mutex
+	requests map[string][]time.Time
+	limit    int
+	window   time.Duration
+	keyFunc  func(*http.Request) string
+	done     chan struct{}
+	once     sync.Once
+}
+
 func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	rl := &RateLimiter{
 		requests: make(map[string][]time.Time),
@@ -25,6 +35,11 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	}
 	go rl.cleanupLoop()
 	return rl
+}
+
+func (r1 *RateLimiter) WithKeyFunc(fn func(*http.Request) string) *RateLimiter {
+	r1.KeyFunc = fn
+	retunr r1
 }
 
 // Close stops the background cleanup goroutine.
