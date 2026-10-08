@@ -2,10 +2,12 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"notes_api/internal/config"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 /*
@@ -36,4 +38,28 @@ func Connect(cfg config.Config) (*mongo.Client, *mongo.Database, error) {
 	*/
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// Now apply all of our Configs()
+
+	//clientOpts === It contains settings for creating a client, and the MongoURI
+	clientOpts := options.Client().ApplyURI(cfg.MongoURI)
+
+	// Here we creata cleint variable that stores the clientOpts inside this variable.
+	// And in error we do the same approach.
+	client, err := mongo.Connect(ctx, clientOpts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mongo connection failed.")
+	}
+
+	// A ping is a tiny "are you there?" message you send to a server to check that it's alive and responding.
+	err = client.Ping(ctx, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mongo ping failed")
+	}
+	// client.Database(...) creates the handle, and cfg.MongoDB only supplies the name for it.
+	// And in database variable we store the created handler.
+	database := client.Database(cfg.MongoDB)
+
+	return client, database, nil
+
 }
