@@ -69,3 +69,13 @@ Summary for this Connect() function
 
 Connect() is a function that takes a config and promises to return a client, a database handle, and an error. First I create a ctx with a 10-second timeout, so Connect and Ping give up with an error if they take too long. Then I build clientOpts, which holds the settings parsed from cfg.MongoURI. I pass those to mongo.Connect to create the client, and check for an error. Next I ping the server to confirm it's reachable, and check that error too. Then I create database using client.Database(cfg.MongoDB), which gives me a handle to the database named in the config. Finally I return client, database, and nil (no error).
 */
+
+// Now DisCoonnect Fucntion
+
+func Disconnect(clinet *mongo.Client) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return clinet.Disconnect(ctx)
+
+}
