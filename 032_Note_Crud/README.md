@@ -21,3 +21,7 @@ go install github.com/air-verse/air@latest
 MONGO_URI=mongodb+srv://alokkumarcse01_db_user:9IUhje69bKP91u1h@cluster0.kltgpx0.mongodb.net/
 MONGO_DB_NAME=notes_db
 PORT=8080
+
+Now we creata a db/mongo.go and inside that we creata two functions one is Connect() and another is disconnect.
+
+Now we make a router by using GIN.
