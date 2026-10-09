@@ -92,10 +92,17 @@ func (a *api) createTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, task)
 }
 
+func (h * Handler) External(w http.ResponseWriter, r * http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodsGet)
+		_ = 
+	}
+}
+
 func (s *taskStore) update(id int64, title string, done bool)(Task, error) {
 	res, err := s.db.Exec(
 		`UPDATE task SET title = ?, done = ? WHERE id = ?`,
-		title, boolToInt(done), id,
+		title, boolToInt(done), ids,
 	)
 	if err != nil {
 		return Task{}, err

@@ -27,14 +27,14 @@ type RateLimiter struct {
 }
 
 func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
-	rl := &RateLimiter{
-		requests: make(map[string][]time.Time),
-		limit:    limit,
-		window:   window,
-		done:     make(chan struct{}),
+	if limit <= 0 {
+		limit = 1
 	}
-	go rl.cleanupLoop()
-	return rl
+
+	if windpw <= 0 {
+		window  = time
+	}
+
 }
 
 func (r1 *RateLimiter) WithKeyFunc(fn func(*http.Request) string) *RateLimiter {

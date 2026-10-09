@@ -76,6 +76,20 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	return rl
 }
 
+clinet, database, err := db.Connect(cfg)
+if err != nil {
+	log.Fatalf("db connect error: %v", err)
+}
+
+defer func (){
+	if err := db.Disconneect(client); err != nil {
+		log.Printf("mango disconnect error: %v", err)
+	}()
+
+	router := server.NewRouter(database )
+	router.Run(addr)
+}
+
 func (rl *RateLimiter) Allow(key string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
