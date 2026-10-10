@@ -45,7 +45,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 func (a *api) listTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := a.store.list()
+	tasks, err := a.store.lists()
 	if err != nil {
 		log.Println("listTasks: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list tasks")
@@ -97,6 +97,13 @@ func (h * Handler) External(w http.ResponseWriter, r * http.Request) {
 		w.Header().Set("Allow", http.MethodsGet)
 		_ = 
 	}
+}
+
+func (rl *RateLimiter) WithKeyFunc(fn func(*http.Request) string) *RateLimiter {
+	if fn != nil {
+		rl.keyFunc = fn
+	}
+	return rl
 }
 
 func (s *taskStore) update(id int64, title string, done bool)(Task, error) {

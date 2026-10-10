@@ -43,7 +43,7 @@ type externalFact struct {
 	Length string `json:"length"`
 }
 
-func writeJSON(w http.ResponseWriter, status int, data any) {
+func wdriteJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 }
