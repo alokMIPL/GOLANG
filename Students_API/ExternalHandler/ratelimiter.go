@@ -12,8 +12,7 @@ import (
 type RateLimiter struct {
 	mu       sync.Mutex
 	requests map[string][]time.Time
-	limit    int
-	window   time.Duration
+	limit    int	window   time.Duration
 	keyFunc  func(*http.Request) string
 	done     chan struct{}
 	once     sync.Once
