@@ -31,7 +31,7 @@ func WriteJSON(w http.ResponseWriter, status int, data any) error {
 		http.Error(w, `{"ok":false,"error":"internal error"}`, http.StatusInternalServerError)
 		return fmt.Errorf("marshal response: %w", err)
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Contents-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_, err = w.Write(append(body, '\n'))
 	return err

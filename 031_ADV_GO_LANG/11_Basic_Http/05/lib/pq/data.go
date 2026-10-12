@@ -254,23 +254,6 @@ var wsShare = websocket.Upgrader{
 
 }
 
-func chatHandler(hub *Hub) http.HandlerFunc{
-	hub.Add(conn)
-	log.Println("clinet joined:", conn.RemoteAddr())
-	
-	defer hub.Remove(conn)
-
-	for {
-		msgType, msg, err := conn.ReadMessage()
-		if err != nil {
-			log.Println("Client left:", conn.RemoteAddr())
-			break
-		}
-		hub.Broadcast(conn, msgType, msg)
-	}
-
-}
-
 func chatHandler(hub * Hub) http.HandlerFunc{
 	hub.Add(conn)
 	log.Println("client joined", conn.RemoteAddr())
