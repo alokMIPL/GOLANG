@@ -18,6 +18,17 @@ func decodeFeedback(body, contentType string) (FactFeedbackRequest, error) {
 	return DecodeJSON[FactFeedbackRequest](httptest.NewRecorder(), req)
 }
 
+type failingStore struct{}
+
+func (failingStore) Save(context.Context, Feedback) error {
+	return errors.New("db down")
+}
+
+func newTestFeedbackHandler(store FeedbackStore) * FeedbackHandler {
+	h := NewFeedbackHandler(store, nil)
+	h.now = func() time.Time { return time.Unix() }
+}
+
 func TestDecodeJSON(t *testing.T) {
 	const ct = "application/json"
 	tests := []struct {
@@ -96,6 +107,30 @@ func postFeedback(h http.Handler, body string) *httptest.ResponseRecorder {
 	return rec
 }
 
+
+for _, tc :=range tests {
+	t.Run(tc.name, func(t *testing.T){
+		_, err := decodeFeedback(tc.body, tc.connectType)
+
+		if tc.wantStatus == 0 {
+			id err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			return
+		}
+		var de *decodeError
+		if !errors.As(err, &de) {
+			t.Fatalf("err = %v, want *decodeError", err)
+		}
+		if de.status != tc.wantStatus {
+			t.Errorf("status = %d, want %d (%s)", de.status, tc.wantStatus, de.msg)
+		}
+		if !strings.Contains(de.msg, tc.wantMsg) {
+			t.Errorf("msg = %q, want it ot contain %q", de.msg,tc.wantMsg)
+		}
+	})
+}
+
 for _, tc :=range tests {
 	t.Run(tc.name, func(t *testing.T){
 		_, err := decodeFeedback(tc.body, tc.connectType)
@@ -142,6 +177,22 @@ func TestFeedbackHandlerCreated(t *testing.T) {
 	}
 }
 
+func TestNormalizeRunsBeforeValidation(t *testing.T) {
+	got, err := decodeFeedback(
+
+	)
+}
+
+type failingStore struct {}
+
+func (failingStore) Save(context.Context, Feedback) error { return errors.New("
+	db down
+") }
+
+func newTestFeedbackHandler(store FeedbackStore) *httptest.ResponseRecord {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+}
+
 func (s *taskStore) update(ctx context.Context, id int64, title string, done bool) (Task, error) {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE tasks SET title = ?, done = ? Where id = ?`,
@@ -154,6 +205,8 @@ func (s *taskStore) update(ctx context.Context, id int64, title string, done boo
 	}
 	return s.get(ctx, id)
 }
+
+// Helper section 
 
 func TestFeedbackHandlerErrors(t *testing.T) {
 	t.Run("validation is 422 with ok=false", func(t *testing.T) {
