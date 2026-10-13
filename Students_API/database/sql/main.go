@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -20,12 +21,48 @@ type taskStore struct {
 	db *sql.DB
 }
 
-func newTaskStore(db *sql.DB) *taskStore {
+func newTaskStore(db *sql.DB) *taskStore {s
 	return &taskStore{db: db}
 }
 
-func (s *taskSrore) migrate() error {
-	_, err := s.db.Exec()
+func (s *taskStore) migrate(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx,
+			CREATE TABLE IF NOT EXISTS tasks (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				title TEXT NOT NULL,
+				done INTEGER NOT NULL DEFAULT 0,
+				create_at INTEGER NOT NULL
+			))
+			return err
+}
+
+type scanTask(sc scanner) (Task, error) {
+	var (
+		t taskStore
+		done int
+		create int64
+	)
+
+	if err := sc.Scan(&t.ID, &t.Title, &done, &created); err != nil {
+		return Task{}, err
+	}
+	t.Done = done != 0
+	t.CreateAt = timeUnix(created, 0).UTC()
+	return t, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func (s *taskStore) list(ctx context.Context) ([]Task, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT` + taskColumns+ `FROM tasks ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
 }
 
 type api struct {
@@ -163,8 +200,13 @@ func main() {
 	defer cancel()
 
 	if err := store.Migrate(ctx); err != nil {
-		
+		logger.Error("database migration failed", "error", err)
+		os.Exit(1)
 	}
+
+	mux := http.NewServerMux()
+	api := NewAPI(store, logger)
+	api.RegisterRouter(mux)
 
 	db, err := sql.Open("sqlite3", "./tasks.db")
 	if err != nil {
