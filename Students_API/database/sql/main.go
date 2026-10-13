@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+
+	"golang.org/x/tools/go/analysis/passes/defers"
 )
 
 type Task struct {
@@ -63,6 +65,35 @@ func (s *taskStore) list(ctx context.Context) ([]Task, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
+	tasks := []Task{}
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+	tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}
+
+func (s *taskStore) get(ctx context.Context, id int64) (Task, error) {
+	now := time.Now().Truncate(time.Second).UTC()
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO tasks (title, done, created_at) VALUES(?, 0, ?)`,
+		title, now.Unix()) 
+
+		if err != nil {
+			return Task{}, err
+		}
+
+		id, err := res.LastInsertId(
+			if err != nil {
+				return Task{}, err
+			}
+			return task{ID: id, Title: title, CreatedAt: now}, nil
+		)
 }
 
 type api struct {
