@@ -146,5 +146,15 @@ func (a *api) getTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	db, err := sql.Open("sqlite3", "./tasks.db")
+	if err != nil {
+		log.Fatel(err)
+	}
+	defer db.Close()
+
+	store := newTaskStore(db)
+	if err := store.migrate(); err != nil {
+		
+	}
 
 }
