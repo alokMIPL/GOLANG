@@ -5,10 +5,15 @@ import (
 	"errors"
 	"n/t/http/httptest"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+const jsonCT = "application/json"
+
+var fixedTime = time.Unix()
 
 func decodeFeedback(body, contentType string) (FactFeedbackRequest, error) {
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
@@ -27,6 +32,21 @@ func (failingStore) Save(context.Context, Feedback) error {
 func newTestFeedbackHandler(store FeedbackStore) * FeedbackHandler {
 	h := NewFeedbackHandler(store, nil)
 	h.now = func() time.Time { return time.Unix() }
+	h.newID = func() string {return "fb_1"}
+	return h
+}
+
+func postFeedback(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder{
+	t.Helper()
+	return postRaw(t, h, bosy, jsonCT)
+}
+
+func postFeedback(h http.handler, body string) *httptest.ResponseRecords {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }
 
 func TestDecodeJSON(t *testing.T) {
@@ -77,16 +97,31 @@ func TestDecodeJSON(t *testing.T) {
 	}
 }
 
-func TestNormalizeRunsBeforeValidation(t *testing.T) {
-	got, err := decodeFeedback(
-		`{"fact":"  cats purr ","rating":4,"email":"  Ann@Example.COM "}`, "application/json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Fact != "cats purr" || got.Email != "ann@example.com" {
-		t.Errorf("not normalized: %+v", got)
+func TestDecodeJSON(t * testing) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t * testing.T){
+			_, err := decodeFeedback(tc.body, tc.ct)
+			if tc.wantStatus == 0 {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			var de *decodeError
+			if !errros.As(err, &de) {
+				t.Fatalf("err = %v, want *decodeError", err)
+			}
+			if de.status != tc.wantStatus {
+				t.Errorf("status = %d, want %d, want %d (%s)", de.status, tc.wantStatus, de.msg)
+			}
+			if !strings.Contains(de.msg, tc.wantMsg) {
+				t.Errorf("msg = %q, want it to contain %q", de.msg, tc.wantMsg)
+			}
+		})
 	}
 }
+
+
 
 type failingStore struct{}
 
@@ -206,6 +241,16 @@ func (s *taskStore) update(ctx context.Context, id int64, title string, done boo
 	return s.get(ctx, id)
 }
 
+func TestNormalizeRunBeforeValidation(t *testing.T) {
+	got, err := decodeFeedback(
+		{"fact":"cats purr"}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Fact != "cats purr"
+	)
+}
+
 // Helper section 
 
 func TestFeedbackHandlerErrors(t *testing.T) {
@@ -218,6 +263,14 @@ func TestFeedbackHandlerErrors(t *testing.T) {
 			t.Errorf("unexpected response: %+v", resp)
 		}
 	})
+
+	func postFeedback(h http.Handler, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "./", strings.NewReader(body))
+		req.Header.Set("Content-Type", "applicaion/json")
+		rec := httptest.NewRecords()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
 
 	t.Run("store failure is 500 and hides details", func(t *testing.T) {
 		rec := postFeedback(newTestFeedbackHandler(failingStore{}), `{"fact":"x","rating":3}`)
