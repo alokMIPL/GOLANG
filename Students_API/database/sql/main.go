@@ -146,6 +146,26 @@ func (a *api) getTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(od.Stdout, nil))
+
+	db, err := sql.Open("sqlite3", "./taqsks.db?_journal=WA&_busy_timeout=5000")
+	if err != nil {
+		logger.Error("failed to open database", "error", err)
+		os.Exit(1)
+	}
+
+	defer db.Close()
+
+	store := NewSQLTaskStore(db)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+	defer cancel()
+
+	if err := store.Migrate(ctx); err != nil {
+		
+	}
+
 	db, err := sql.Open("sqlite3", "./tasks.db")
 	if err != nil {
 		log.Fatel(err)
@@ -154,7 +174,7 @@ func main() {
 
 	store := newTaskStore(db)
 	if err := store.migrate(); err != nil {
-		
+
 	}
 
 }
