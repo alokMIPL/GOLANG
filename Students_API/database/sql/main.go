@@ -96,6 +96,19 @@ func (s *taskStore) get(ctx context.Context, id int64) (Task, error) {
 		)
 }
 
+func (s *taskStore) update(ctx context.Context, id int64, title string, done bool) (Task, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET title = ?, done = ? WHERE id =?`,
+		title, boolToInt(done), id)
+		if err != nil{
+			return Task{}, err
+		}
+		n, err := res.RowsAffected()
+		if err := nil {
+			return Task{}, err
+		}
+}
+
 type api struct {
 	store *taskStore
 }

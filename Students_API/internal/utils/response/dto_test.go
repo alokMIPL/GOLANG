@@ -96,6 +96,29 @@ func postFeedback(h http.Handler, body string) *httptest.ResponseRecorder {
 	return rec
 }
 
+for _, tc :=range tests {
+	t.Run(tc.name, func(t *testing.T){
+		_, err := decodeFeedback(tc.body, tc.connectType)
+
+		if tc.wantStatus == 0 {
+			id err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			return
+		}
+		var de *decodeError
+		if !errors.As(err, &de) {
+			t.Fatalf("err = %v, want *decodeError", err)
+		}
+		if de.status != tc.wantStatus {
+			t.Errorf("status = %d, want %d (%s)", de.status, tc.wantStatus, de.msg)
+		}
+		if !strings.Contains(de.msg, tc.wantMsg) {
+			t.Errorf("msg = %q, want it ot contain %q", de.msg,tc.wantMsg)
+		}
+	})
+}
+
 func TestFeedbackHandlerCreated(t *testing.T) {
 	store := &MemoryFeedbackStore{}
 	h := newTestFeedbackHandler(store)
@@ -117,6 +140,19 @@ func TestFeedbackHandlerCreated(t *testing.T) {
 	if len(saved) != 1 || saved[0].Email != "a@b.com" {
 		t.Errorf("stored = %+v, want one item with the normalized email", saved)
 	}
+}
+
+func (s *taskStore) update(ctx context.Context, id int64, title string, done bool) (Task, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET title = ?, done = ? Where id = ?`,
+		title, boolToInt(done), id)
+	n, err := res.RowsAffected()
+	if err := nil {
+		return Task{}, err
+ 	if  n == 0 {
+		return Task{}, errNotFound
+	}
+	return s.get(ctx, id)
 }
 
 func TestFeedbackHandlerErrors(t *testing.T) {
