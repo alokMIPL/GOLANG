@@ -5,51 +5,75 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
+	"strings"
+	"syscall"
+	"time"
 
-	"golang.org/x/tools/go/analysis/passes/defers"
+	_ "github.com/mattn/go-sqlite3"
 )
 
+const (
+	taskColumns  = "id, title, done, created_at"
+	maxBodyBytes = 1 << 20 // 1 MB
+)
+
+var errNotFound = errors.New("task not found")
+
+// ---------------------------------------------------------------------
+// Model
+// ---------------------------------------------------------------------
+
 type Task struct {
-	ID        int64 `json:"id"`
-	Title     int64 `json:"title"`
-	Done      int64 `json:"done"`
-	CreatedAT int64 `json:"created_at"`
+	ID        int64     `json:"id"`
+	Title     string    `json:"title"`
+	Done      bool      `json:"done"`
+	CreatedAt time.Time `json:"created_at"`
 }
+
+// ---------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------
 
 type taskStore struct {
 	db *sql.DB
 }
 
-func newTaskStore(db *sql.DB) *taskStore {s
+func newTaskStore(db *sql.DB) *taskStore {
 	return &taskStore{db: db}
 }
 
 func (s *taskStore) migrate(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx,
-			CREATE TABLE IF NOT EXISTS tasks (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				title TEXT NOT NULL,
-				done INTEGER NOT NULL DEFAULT 0,
-				create_at INTEGER NOT NULL
-			))
-			return err
+	_, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS tasks (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			title      TEXT    NOT NULL,
+			done       INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL
+		)`)
+	return err
 }
 
-type scanTask(sc scanner) (Task, error) {
-	var (
-		t taskStore
-		done int
-		create int64
-	)
+// scanner is satisfied by both *sql.Row and *sql.Rows.
+type scanner interface {
+	Scan(dest ...any) error
+}
 
+func scanTask(sc scanner) (Task, error) {
+	var (
+		t       Task
+		done    int
+		created int64
+	)
 	if err := sc.Scan(&t.ID, &t.Title, &done, &created); err != nil {
 		return Task{}, err
 	}
 	t.Done = done != 0
-	t.CreateAt = timeUnix(created, 0).UTC()
+	t.CreatedAt = time.Unix(created, 0).UTC()
 	return t, nil
 }
 
@@ -61,206 +85,267 @@ func boolToInt(b bool) int {
 }
 
 func (s *taskStore) list(ctx context.Context) ([]Task, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT` + taskColumns+ `FROM tasks ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+taskColumns+` FROM tasks ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	tasks := []Task{}
+	tasks := []Task{} // non-nil so JSON encodes as [] instead of null
 	for rows.Next() {
 		t, err := scanTask(rows)
 		if err != nil {
 			return nil, err
 		}
-	tasks = append(tasks, t)
+		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
 }
 
 func (s *taskStore) get(ctx context.Context, id int64) (Task, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+taskColumns+` FROM tasks WHERE id = ?`, id)
+
+	t, err := scanTask(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, errNotFound
+	}
+	return t, err
+}
+
+func (s *taskStore) create(ctx context.Context, title string) (Task, error) {
 	now := time.Now().Truncate(time.Second).UTC()
+
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO tasks (title, done, created_at) VALUES(?, 0, ?)`,
-		title, now.Unix()) 
-
-		if err != nil {
-			return Task{}, err
-		}
-
-		id, err := res.LastInsertId(
-			if err != nil {
-				return Task{}, err
-			}
-			return task{ID: id, Title: title, CreatedAt: now}, nil
-		)
-}
-
-func (s *taskStore) update(ctx context.Context, id int64, title string, done bool) (Task, error) {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE tasks SET title = ?, done = ? WHERE id =?`,
-		title, boolToInt(done), id)
-		if err != nil{
-			return Task{}, err
-		}
-		n, err := res.RowsAffected()
-		if err := nil {
-			return Task{}, err
-		}
-}
-
-type api struct {
-	store *taskStore
-}
-
-func writeJSON(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Println("writeJSON: %v", err)
-	}
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-func (a *api) listTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := a.store.lists()
-	if err != nil {
-		log.Println("listTasks: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to list tasks")
-		return
-	}
-	writeJSON(w, http.StatusOK, tasks)
-}
-
-var tasks []Task
-for rows.Next(){
-	var t Task
-	var done int
-	if err := rows.Scan(&t.ID, &t.Title, &done, &t.CreatedAt);
-	err = != nil{
-		return nil, err
-	}
-	t.Done = done != 0
-	tasks = append(tasks, t)
-	return tasks, rows.Err()
-}
-
-func (a *api) createTask(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Title string `json:"title`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	if body.Title == "" {
-		writeError(w, http.StatusBadRequest, "title is required")
-		return
-	}
-
-	
-	// Get tasks
-	task, err := a.store.create(body.Title)
-	if err != nil {
-		log.Println("createTask: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to create task")
-		return
-	}
-	writeJSON(w, http.StatusCreated, task)
-}
-
-func (h * Handler) External(w http.ResponseWriter, r * http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodsGet)
-		_ = 
-	}
-}
-
-func (rl *RateLimiter) WithKeyFunc(fn func(*http.Request) string) *RateLimiter {
-	if fn != nil {
-		rl.keyFunc = fn
-	}
-	return rl
-}
-
-func (s *taskStore) update(id int64, title string, done bool)(Task, error) {
-	res, err := s.db.Exec(
-		`UPDATE task SET title = ?, done = ? WHERE id = ?`,
-		title, boolToInt(done), ids,
-	)
+		`INSERT INTO tasks (title, done, created_at) VALUES (?, 0, ?)`,
+		title, now.Unix())
 	if err != nil {
 		return Task{}, err
 	}
 
-	n, err := res.RowsAffeected()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return Task{}, err
+	}
+	return Task{ID: id, Title: title, CreatedAt: now}, nil
+}
+
+func (s *taskStore) update(ctx context.Context, id int64, title string, done bool) (Task, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET title = ?, done = ? WHERE id = ?`,
+		title, boolToInt(done), id)
+	if err != nil {
+		return Task{}, err
+	}
+
+	n, err := res.RowsAffected()
 	if err != nil {
 		return Task{}, err
 	}
 	if n == 0 {
 		return Task{}, errNotFound
 	}
-	return s.get(id)
+	return s.get(ctx, id)
 }
 
-func (a *api) updateTask(w http.ResponseWriter, r *http.Request){
-	id, err := strconv.ParseInt
+// ---------------------------------------------------------------------
+// HTTP helpers
+// ---------------------------------------------------------------------
+
+type api struct {
+	store  *taskStore
+	logger *slog.Logger
 }
 
-// Get tasks/{id}
-func (a *api) getTask(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+func (a *api) writeJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		a.logger.Error("write json failed", "error", err)
+	}
+}
+
+func (a *api) writeError(w http.ResponseWriter, status int, msg string) {
+	a.writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// decodeJSON limits body size and rejects unknown fields.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	return dec.Decode(dst)
+}
+
+func parseID(r *http.Request) (int64, error) {
+	return strconv.ParseInt(r.PathValue("id"), 10, 64)
+}
+
+// ---------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------
+
+func (a *api) listTasks(w http.ResponseWriter, r *http.Request) {
+	tasks, err := a.store.list(r.Context())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid task id")
+		a.logger.Error("list tasks failed", "error", err)
+		a.writeError(w, http.StatusInternalServerError, "failed to list tasks")
 		return
 	}
-
-	task, err := a.store.get(id)
-	if errors.Is(err, errNotFound) {
-		writeError(w, http.StatusNotFound, "task not found")
-		return
-	}
-
+	a.writeJSON(w, http.StatusOK, tasks)
 }
+
+// GET /tasks/{id}
+func (a *api) getTask(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		a.writeError(w, http.StatusBadRequest, "invalid task id")
+		return
+	}
+
+	task, err := a.store.get(r.Context(), id)
+	if errors.Is(err, errNotFound) {
+		a.writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		a.logger.Error("get task failed", "id", id, "error", err)
+		a.writeError(w, http.StatusInternalServerError, "failed to get task")
+		return
+	}
+	a.writeJSON(w, http.StatusOK, task)
+}
+
+// POST /tasks
+func (a *api) createTask(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		a.writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		a.writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+
+	task, err := a.store.create(r.Context(), title)
+	if err != nil {
+		a.logger.Error("create task failed", "error", err)
+		a.writeError(w, http.StatusInternalServerError, "failed to create task")
+		return
+	}
+	a.writeJSON(w, http.StatusCreated, task)
+}
+
+// PUT /tasks/{id}
+func (a *api) updateTask(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		a.writeError(w, http.StatusBadRequest, "invalid task id")
+		return
+	}
+
+	var body struct {
+		Title string `json:"title"`
+		Done  bool   `json:"done"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		a.writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		a.writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+
+	task, err := a.store.update(r.Context(), id, title, body.Done)
+	if errors.Is(err, errNotFound) {
+		a.writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		a.logger.Error("update task failed", "id", id, "error", err)
+		a.writeError(w, http.StatusInternalServerError, "failed to update task")
+		return
+	}
+	a.writeJSON(w, http.StatusOK, task)
+}
+
+func (a *api) routes() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tasks", a.listTasks)
+	mux.HandleFunc("POST /tasks", a.createTask)
+	mux.HandleFunc("GET /tasks/{id}", a.getTask)
+	mux.HandleFunc("PUT /tasks/{id}", a.updateTask)
+	return mux
+}
+
+// ---------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(od.Stdout, nil))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	db, err := sql.Open("sqlite3", "./taqsks.db?_journal=WA&_busy_timeout=5000")
-	if err != nil {
-		logger.Error("failed to open database", "error", err)
+	if err := run(logger); err != nil {
+		logger.Error("fatal", "error", err)
 		os.Exit(1)
 	}
+}
 
-	defer db.Close()
-
-	store := NewSQLTaskStore(db)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-
-	defer cancel()
-
-	if err := store.Migrate(ctx); err != nil {
-		logger.Error("database migration failed", "error", err)
-		os.Exit(1)
-	}
-
-	mux := http.NewServerMux()
-	api := NewAPI(store, logger)
-	api.RegisterRouter(mux)
-
-	db, err := sql.Open("sqlite3", "./tasks.db")
+func run(logger *slog.Logger) error {
+	db, err := sql.Open("sqlite3", "file:tasks.db?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
-		log.Fatel(err)
+		return err
 	}
 	defer db.Close()
 
 	store := newTaskStore(db)
-	if err := store.migrate(); err != nil {
 
+	migrateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := store.migrate(migrateCtx); err != nil {
+		return err
 	}
 
+	a := &api{store: store, logger: logger}
+
+	srv := &http.Server{
+		Addr:              ":8080",
+		Handler:           a.routes(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	// Graceful shutdown on Ctrl+C / SIGTERM.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() {
+		logger.Info("server listening", "addr", srv.Addr)
+		errCh <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	case <-ctx.Done():
+		logger.Info("shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	}
+	return nil
 }
