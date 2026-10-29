@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -36,25 +37,20 @@ func main() {
 		Handler: router,
 	}
 
-	serverOK := http.Server{
-		Addr:    cfg.Addr,
-		Handler: router,
-	}
-
-	slog.Info("Server went wrong", slog.String("", cfg.StoragePath))
+	slog.Info("Storage path", slog.String("path", cfg.StoragePath))
 
 	slog.Info("Server started", slog.String("address", cfg.Addr))
 
 	done := make(chan os.Signal, 1)
 
-	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
 		err := server.ListenAndServe()
-		if err != nil {
-			log.Fatal("Failed to start server")
+		// ErrServerClosed is returned on normal Shutdown, so it is not a failure
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal("Failed to start server: ", err)
 		}
-		fmt.Println(serverOK)
 	}()
 
 	<-done
@@ -66,9 +62,9 @@ func main() {
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		slog.Error("Failed to shoutdown server", slog.String("error", err.Error()))
+		slog.Error("Failed to shutdown server", slog.String("error", err.Error()))
 	}
 
-	slog.Info("server shutdown successfuly")
+	slog.Info("Server shutdown successfully")
 
 }
