@@ -1,6 +1,7 @@
 package response
 
 import (
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -8,14 +9,31 @@ import (
 	"time"
 )
 
+// maxCleanupInterval caps how long idle keys can linger, even for large windows.
+const maxCleanupInterval = time.Minute
+
+// bucket holds the request timestamps for one key. It grows up to `limit`
+// entries and is then used as a ring buffer, so every operation is O(1).
+type bucket struct {
+	times []time.Time
+	head  int // index of the oldest entry once the ring is full
+}
+
+// newest returns the most recent timestamp. Only call on a non-empty bucket.
+func (b *bucket) newest() time.Time {
+	return b.times[(b.head+len(b.times)-1)%len(b.times)]
+}
+
 // RateLimiter is a per-key sliding-window limiter.
 type RateLimiter struct {
-	mu       sync.Mutex
-	requests map[string][]time.Time
-	limit    int	window   time.Duration
-	keyFunc  func(*http.Request) string
-	done     chan struct{}
-	once     sync.Once
+	mu      sync.Mutex
+	buckets map[string]*bucket
+	limit   int
+	window  time.Duration
+	keyFunc func(*http.Request) string
+	now     func() time.Time // replaceable in tests
+	done    chan struct{}
+	once    sync.Once
 }
 
 // NewRateLimiter allows `limit` requests per `window` for each key.
@@ -29,18 +47,21 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	}
 
 	rl := &RateLimiter{
-		requests: make(map[string][]time.Time),
-		limit:    limit,
-		window:   window,
-		keyFunc:  remoteIP,
-		done:     make(chan struct{}),
+		buckets: make(map[string]*bucket),
+		limit:   limit,
+		window:  window,
+		keyFunc: remoteIP,
+		now:     time.Now,
+		done:    make(chan struct{}),
 	}
 	go rl.cleanupLoop()
 	return rl
 }
 
-// WithKeyFunc overrides how the client key is derived (e.g. API key,
-// or X-Forwarded-For when behind a trusted proxy). Call before serving.
+// WithKeyFunc overrides how the client key is derived (e.g. API key, or
+// X-Forwarded-For when behind a trusted proxy). Call before serving.
+// Never derive the key from headers a client can spoof unless a trusted proxy
+// sets them, otherwise attackers can dodge the limit and bloat memory.
 func (rl *RateLimiter) WithKeyFunc(fn func(*http.Request) string) *RateLimiter {
 	if fn != nil {
 		rl.keyFunc = fn
@@ -60,36 +81,42 @@ func (rl *RateLimiter) Allow(key string) bool {
 // allow returns whether the request is permitted and, if not,
 // how long until the next slot frees up.
 func (rl *RateLimiter) allow(key string) (bool, time.Duration) {
-	now := time.Now()
+	now := rl.now()
 	cutoff := now.Add(-rl.window)
 
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	times := rl.requests[key]
-
-	// Timestamps are appended in order, so expired entries are a prefix.
-	// Trim in place instead of allocating a new slice on every call.
-	drop := 0
-	for drop < len(times) && !times[drop].After(cutoff) {
-		drop++
-	}
-	if drop > 0 {
-		n := copy(times, times[drop:])
-		times = times[:n]
+	b := rl.buckets[key]
+	if b == nil {
+		b = &bucket{}
+		rl.buckets[key] = b
 	}
 
-	if len(times) >= rl.limit {
-		rl.requests[key] = times
-		return false, times[0].Add(rl.window).Sub(now)
+	// Fewer than `limit` entries ever recorded: always room.
+	if len(b.times) < rl.limit {
+		b.times = append(b.times, now)
+		return true, 0
 	}
 
-	rl.requests[key] = append(times, now)
+	// Ring is full: the oldest entry decides.
+	oldest := b.times[b.head]
+	if oldest.After(cutoff) {
+		return false, oldest.Add(rl.window).Sub(now)
+	}
+
+	// Oldest has expired, so overwrite it with this request.
+	b.times[b.head] = now
+	b.head = (b.head + 1) % rl.limit
 	return true, 0
 }
 
 func (rl *RateLimiter) cleanupLoop() {
-	ticker := time.NewTicker(rl.window)
+	interval := rl.window
+	if interval > maxCleanupInterval {
+		interval = maxCleanupInterval
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -97,14 +124,21 @@ func (rl *RateLimiter) cleanupLoop() {
 		case <-rl.done:
 			return
 		case <-ticker.C:
-			cutoff := time.Now().Add(-rl.window)
-			rl.mu.Lock()
-			for key, times := range rl.requests {
-				if len(times) == 0 || !times[len(times)-1].After(cutoff) {
-					delete(rl.requests, key)
-				}
-			}
-			rl.mu.Unlock()
+			rl.cleanup()
+		}
+	}
+}
+
+// cleanup removes keys whose most recent request is outside the window.
+func (rl *RateLimiter) cleanup() {
+	cutoff := rl.now().Add(-rl.window)
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	for key, b := range rl.buckets {
+		if len(b.times) == 0 || !b.newest().After(cutoff) {
+			delete(rl.buckets, key)
 		}
 	}
 }
@@ -114,7 +148,7 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ok, retry := rl.allow(rl.keyFunc(r))
 		if !ok {
-			secs := int((retry + time.Second - 1) / time.Second) // round up
+			secs := int(math.Ceil(retry.Seconds()))
 			if secs < 1 {
 				secs = 1
 			}
