@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"strings"
 
 	"github.com/alokMIPL/students-api/internal/types"
 	"github.com/alokMIPL/students-api/internal/utils/response"
@@ -16,16 +17,17 @@ import (
 const maxBodyBytes = 1 << 20 // 1 MB
 
 var (
+	// Lowercase messages, per Go lint conventions (ST1005).
 	errEmptyBody       = errors.New("request body must not be empty")
 	errInvalidJSON     = errors.New("request body contains invalid JSON")
+	errInvalidType     = errors.New("request body contains a value of the wrong type")
 	errTrailingData    = errors.New("request body must contain a single JSON object")
 	errBodyTooLarge    = errors.New("request body too large")
-	errUnsupportedType = errors.New("Content-Type must be application/json")
+	errUnsupportedType = errors.New("content-type must be application/json")
+	errInternal        = errors.New("internal server error") // allocated once, not per request
 
-	// Safe for concurrent use; caches struct metadata, so create once.
 	validate = validator.New(validator.WithRequiredStructEnabled())
 
-	// Static response, no per-request map allocation.
 	createdResp = struct {
 		Success string `json:"success"`
 	}{Success: "OK"}
@@ -33,54 +35,59 @@ var (
 
 func New() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. Reject wrong content type early, before reading the body.
-		if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
-			response.WriteJson(w, http.StatusUnsupportedMediaType, response.GeneralError(errUnsupportedType))
-			return
-		}
-
-		// 2. Cap body size. No need for `defer r.Body.Close()`;
-		//    the net/http server closes the request body itself.
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-
 		var student types.Student
 
-		dec := json.NewDecoder(r.Body)
-		dec.DisallowUnknownFields()
-
-		if err := dec.Decode(&student); err != nil {
-			status, clientErr := decodeError(err)
-			response.WriteJson(w, status, response.GeneralError(clientErr))
+		if status, err := decodeJSON(w, r, &student); err != nil {
+			response.WriteJson(w, status, response.GeneralError(err))
 			return
 		}
 
-		// 3. Reject payloads like `{...}{...}` or `{...} garbage`.
-		if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-			response.WriteJson(w, http.StatusBadRequest, response.GeneralError(errTrailingData))
-			return
-		}
-
-		// 4. Pass a pointer to avoid copying the struct.
 		if err := validate.Struct(&student); err != nil {
 			var verrs validator.ValidationErrors
 			if errors.As(err, &verrs) {
 				response.WriteJson(w, http.StatusBadRequest, response.ValidationError(verrs))
 				return
 			}
-			// Programmer error (e.g. invalid validation target): log it, don't leak it.
 			slog.ErrorContext(r.Context(), "validation failed unexpectedly", "error", err)
-			response.WriteJson(w, http.StatusInternalServerError, response.GeneralError(errors.New("internal server error")))
+			response.WriteJson(w, http.StatusInternalServerError, response.GeneralError(errInternal))
 			return
 		}
 
-		slog.InfoContext(r.Context(), "creating a student")
-
-		response.WriteJson(w, http.StatusCreated, createdResp)
+		slog.DebugContext(r.Context(), "creating a student")
+************** 
+		res   ponse.WriteJson(w, http.StatusCreated, createdResp)
 	}
 }
 
-// decodeError maps decoder errors to an HTTP status and a client-safe error,
-// so raw internal messages are never exposed.
+// decodeJSON enforces content type, size limit, a single JSON value, and
+// unknown-field rejection. It returns an HTTP status and a client-safe error.
+// Reusable by every other handler (update, login, etc.).
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) (int, error) {
+	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
+		return http.StatusUnsupportedMediaType, errUnsupportedType
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	if err := dec.Decode(dst); err != nil {
+		return decodeError(err)
+	}
+
+	// Anything after the first JSON value (other than whitespace) is an error.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return http.StatusRequestEntityTooLarge, errBodyTooLarge
+		}
+		return http.StatusBadRequest, errTrailingData
+	}
+
+	return 0, nil
+}
+
 func decodeError(err error) (int, error) {
 	var (
 		syntaxErr   *json.SyntaxError
@@ -95,9 +102,14 @@ func decodeError(err error) (int, error) {
 	case errors.As(err, &syntaxErr), errors.Is(err, io.ErrUnexpectedEOF):
 		return http.StatusBadRequest, errInvalidJSON
 	case errors.As(err, &typeErr):
+		if typeErr.Field == "" { // e.g. body is a bare string or array
+			return http.StatusBadRequest, errInvalidType
+		}
 		return http.StatusBadRequest, errors.New("invalid value for field \"" + typeErr.Field + "\"")
+	case strings.HasPrefix(err.Error(), "json: unknown field"):
+		return http.StatusBadRequest, err // safe and useful to the client
 	default:
-		// Includes unknown-field errors, which are safe and useful to return.
-		return http.StatusBadRequest, err
+		// Anything else (network read errors, etc.) must not leak internals.
+		return http.StatusBadRequest, errInvalidJSON
 	}
 }
