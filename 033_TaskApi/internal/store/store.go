@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"sync"
@@ -12,11 +13,11 @@ import (
 var ErrNotFound = errors.New("task not found")
 
 type TaskStore interface {
-	Create(title string) model.Task
-	List() []model.Task
-	Get(id int) (model.Task, error)
-	Toggle(id int) (model.Task, error)
-	Delete(id int) error
+	Create(ctx context.Context, title string) (model.Task, error)
+	List(ctx context.Context) ([]model.Task, error)
+	Get(ctx context.Context, id int) (model.Task, error)
+	Toggle(ctx context.Context, id int) (model.Task, error)
+	Delete(ctx context.Context, id int) error
 }
 
 type MemoryStore struct {
@@ -29,16 +30,16 @@ func NewMemory() *MemoryStore {
 	return &MemoryStore{tasks: make(map[int]model.Task), nextID: 1}
 }
 
-func (s *MemoryStore) Create(title string) model.Task {
+func (s *MemoryStore) Create(_ context.Context, title string) (model.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t := model.Task{ID: s.nextID, Title: title, CreatedAt: time.Now()}
 	s.tasks[t.ID] = t
 	s.nextID++
-	return t
+	return t, nil
 }
 
-func (s *MemoryStore) List() []model.Task {
+func (s *MemoryStore) List(_ context.Context) ([]model.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]model.Task, 0, len(s.tasks))
@@ -46,10 +47,10 @@ func (s *MemoryStore) List() []model.Task {
 		out = append(out, t)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
+	return out, nil
 }
 
-func (s *MemoryStore) Get(id int) (model.Task, error) {
+func (s *MemoryStore) Get(_ context.Context, id int) (model.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	t, ok := s.tasks[id]
@@ -59,7 +60,7 @@ func (s *MemoryStore) Get(id int) (model.Task, error) {
 	return t, nil
 }
 
-func (s *MemoryStore) Toggle(id int) (model.Task, error) {
+func (s *MemoryStore) Toggle(_ context.Context, id int) (model.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.tasks[id]
@@ -71,7 +72,7 @@ func (s *MemoryStore) Toggle(id int) (model.Task, error) {
 	return t, nil
 }
 
-func (s *MemoryStore) Delete(id int) error {
+func (s *MemoryStore) Delete(_ context.Context, id int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.tasks[id]; !ok {
