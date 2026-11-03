@@ -20,6 +20,7 @@ func New(s store.TaskStore) *TaskHandler {
 
 func (h *TaskHandler) Routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("GET /tasks", h.list)
 	mux.HandleFunc("POST /tasks", h.create)
 	mux.HandleFunc("GET /tasks/{id}", h.get)
@@ -28,11 +29,39 @@ func (h *TaskHandler) Routes() http.Handler {
 	return mux
 }
 
+func health(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// GET /tasks?done=true|false
 func (h *TaskHandler) list(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.store.List())
+	tasks, err := h.store.List(r.Context())
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+
+	if q := r.URL.Query().Get("done"); q != "" {
+		want, err := strconv.ParseBool(q)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "done must be true or false")
+			return
+		}
+		filtered := tasks[:0]
+		for _, t := range tasks {
+			if t.Done == want {
+				filtered = append(filtered, t)
+			}
+		}
+		tasks = filtered
+	}
+
+	writeJSON(w, http.StatusOK, tasks)
 }
 
 func (h *TaskHandler) create(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
+
 	var in struct {
 		Title string `json:"title"`
 	}
@@ -40,7 +69,13 @@ func (h *TaskHandler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title is required")
 		return
 	}
-	writeJSON(w, http.StatusCreated, h.store.Create(in.Title))
+
+	t, err := h.store.Create(r.Context(), strings.TrimSpace(in.Title))
+	if err != nil {
+		handleStoreErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, t)
 }
 
 func (h *TaskHandler) get(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +83,7 @@ func (h *TaskHandler) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	t, err := h.store.Get(id)
+	t, err := h.store.Get(r.Context(), id)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
@@ -61,7 +96,7 @@ func (h *TaskHandler) toggle(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	t, err := h.store.Toggle(id)
+	t, err := h.store.Toggle(r.Context(), id)
 	if err != nil {
 		handleStoreErr(w, err)
 		return
@@ -74,7 +109,7 @@ func (h *TaskHandler) delete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.store.Delete(id); err != nil {
+	if err := h.store.Delete(r.Context(), id); err != nil {
 		handleStoreErr(w, err)
 		return
 	}
