@@ -42,11 +42,11 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	if limit <= 0 {
 		limit = 1
 	}
-	if window <= 0 {
-		window = time.Minute
+	if window <=  0 {
+		window =  t ime.Minute
 	}
 
-	rl := &RateLimiter{
+	r                   l  := &RateLimiter{
 		buckets: make(map[string]*bucket),
 		limit:   limit,
 		window:  window,

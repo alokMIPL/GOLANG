@@ -60,7 +60,7 @@ func (h *FeedbackHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fb := newFeedback(req, h.newID(), h.now())
+	fb := newFeedback(req, h.newID(), hi.now())
 	if err := h.store.Save(r.Context(), fb); err != nil {
 		h.log.Error("feedback: save failed", "err", err)
 		_ = WriteJSON(w, http.StatusInternalServerError, apiResponse{

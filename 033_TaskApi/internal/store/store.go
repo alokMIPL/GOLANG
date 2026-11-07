@@ -3,21 +3,103 @@ package store
 import (
 	"context"
 	"errors"
-	"sort"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 )
 
-func TestCreate_AssignsSequentialIDsAndTrimsTitle(t *testing.T) {
-	s := NewMemory()
-	ctx := context.Background()
+// ---------------------------------------------------------------------------
+// Helpers
+//
+// Assumptions about the implementation (adjust if they differ):
+//   - NewMemory() returns *Memory
+//   - Create/Get/Toggle return a Task value (not a pointer)
+//   - IDs are ints
+//   - Memory has an unexported `now func() time.Time` field
+//   - Go 1.21+ (for the standard "slices" package)
+// ---------------------------------------------------------------------------
 
-	a, err := s.Create(ctx, "  first  ")
+func mustCreate(t *testing.T, s *Memory, title string) Task {
+	t.Helper()
+	task, err := s.Create(context.Background(), title)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Create(%q): %v", title, err)
 	}
-	b, _ := s.Create(ctx, "second")
+	return task
+}
+
+func mustGet(t *testing.T, s *Memory, id int) Task {
+	t.Helper()
+	task, err := s.Get(context.Background(), id)
+	if err != nil {
+		t.Fatalf("Get(%d): %v", id, err)
+	}
+	return task
+}
+
+func mustToggle(t *testing.T, s *Memory, id int) Task {
+	t.Helper()
+	task, err := s.Toggle(context.Background(), id)
+	if err != nil {
+		t.Fatalf("Toggle(%d): %v", id, err)
+	}
+	return task
+}
+
+func mustDelete(t *testing.T, s *Memory, id int) {
+	t.Helper()
+	if err := s.Delete(context.Background(), id); err != nil {
+		t.Fatalf("Delete(%d): %v", id, err)
+	}
+}
+
+func mustList(t *testing.T, s *Memory) []Task {
+	t.Helper()
+	list, err := s.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	return list
+}
+
+func listIDs(list []Task) []int {
+	ids := make([]int, 0, len(list))
+	for _, task := range list {
+		ids = append(ids, task.ID)
+	}
+	return ids
+}
+
+// idOps are the operations that take an ID, so the same table drives both the
+// "missing ID" and "cancelled context" tests.
+var idOps = []struct {
+	name string
+	call func(ctx context.Context, s *Memory, id int) error
+}{
+	{"Get", func(ctx context.Context, s *Memory, id int) error {
+		_, err := s.Get(ctx, id)
+		return err
+	}},
+	{"Toggle", func(ctx context.Context, s *Memory, id int) error {
+		_, err := s.Toggle(ctx, id)
+		return err
+	}},
+	{"Delete", func(ctx context.Context, s *Memory, id int) error {
+		return s.Delete(ctx, id)
+	}},
+}
+
+// ---------------------------------------------------------------------------
+// Create
+// ---------------------------------------------------------------------------
+
+func TestCreate_AssignsSequentialIDsAndTrimsTitle(t *testing.T) {
+	t.Parallel()
+	s := NewMemory()
+
+	a := mustCreate(t, s, "  first  ")
+	b := mustCreate(t, s, "second")
 
 	if a.ID != 1 || b.ID != 2 {
 		t.Fatalf("got IDs %d, %d; want 1, 2", a.ID, b.ID)
@@ -27,21 +109,74 @@ func TestCreate_AssignsSequentialIDsAndTrimsTitle(t *testing.T) {
 	}
 }
 
+func TestCreate_InitialState(t *testing.T) {
+	t.Parallel()
+	task := mustCreate(t, NewMemory(), "x")
+
+	if task.Done {
+		t.Error("new task Done = true; want false")
+	}
+	if task.CreatedAt.IsZero() {
+		t.Error("new task CreatedAt is zero; want it set")
+	}
+}
+
+func TestCreate_PreservesInnerWhitespace(t *testing.T) {
+	t.Parallel()
+	task := mustCreate(t, NewMemory(), "  a  b  ")
+
+	if task.Title != "a  b" {
+		t.Fatalf("title = %q; want %q", task.Title, "a  b")
+	}
+}
+
 func TestCreate_InvalidTitle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		title string
+	}{
+		{"empty", ""},
+		{"spaces", "   "},
+		{"tabs and newlines", "\t\n"},
+		{"non-breaking space", "\u00a0"}, // assumes the impl uses strings.TrimSpace
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewMemory()
+
+			_, err := s.Create(context.Background(), tt.title)
+			if !errors.Is(err, ErrInvalidTitle) {
+				t.Fatalf("Create(%q) error = %v; want ErrInvalidTitle", tt.title, err)
+			}
+			if n := len(mustList(t, s)); n != 0 {
+				t.Fatalf("len(list) = %d after failed Create; want 0", n)
+			}
+		})
+	}
+}
+
+func TestCreate_InvalidTitleDoesNotConsumeID(t *testing.T) {
+	t.Parallel()
 	s := NewMemory()
-	for _, title := range []string{"", "   ", "\t\n"} {
-		if _, err := s.Create(context.Background(), title); !errors.Is(err, ErrInvalidTitle) {
-			t.Errorf("Create(%q) error = %v; want ErrInvalidTitle", title, err)
-		}
+
+	if _, err := s.Create(context.Background(), "  "); !errors.Is(err, ErrInvalidTitle) {
+		t.Fatalf("error = %v; want ErrInvalidTitle", err)
+	}
+	if task := mustCreate(t, s, "ok"); task.ID != 1 {
+		t.Fatalf("ID = %d; want 1 (failed Create must not consume an ID)", task.ID)
 	}
 }
 
 func TestCreate_UsesInjectedClockInUTC(t *testing.T) {
+	t.Parallel()
 	s := NewMemory()
 	fixed := time.Date(2026, 1, 2, 3, 4, 5, 0, time.FixedZone("IST", 5*3600+1800))
 	s.now = func() time.Time { return fixed }
 
-	task, _ := s.Create(context.Background(), "x")
+	task := mustCreate(t, s, "x")
+
 	if !task.CreatedAt.Equal(fixed) {
 		t.Fatalf("CreatedAt = %v; want instant %v", task.CreatedAt, fixed)
 	}
@@ -50,129 +185,229 @@ func TestCreate_UsesInjectedClockInUTC(t *testing.T) {
 	}
 }
 
-func TestMissingID_ReturnsErrNotFound(t *testing.T) {
-	s := NewMemory()
-	ctx := context.Background()
+// ---------------------------------------------------------------------------
+// Missing IDs
+// ---------------------------------------------------------------------------
 
-	if _, err := s.Get(ctx, 42); !errors.Is(err, ErrNotFound) {
-		t.Errorf("Get error = %v; want ErrNotFound", err)
-	}
-	if _, err := s.Toggle(ctx, 42); !errors.Is(err, ErrNotFound) {
-		t.Errorf("Toggle error = %v; want ErrNotFound", err)
-	}
-	if err := s.Delete(ctx, 42); !errors.Is(err, ErrNotFound) {
-		t.Errorf("Delete error = %v; want ErrNotFound", err)
+func TestMissingID_ReturnsErrNotFound(t *testing.T) {
+	t.Parallel()
+
+	for _, op := range idOps {
+		for _, id := range []int{42, 0, -1} {
+			t.Run(op.name, func(t *testing.T) {
+				s := NewMemory()
+				mustCreate(t, s, "x") // so the store is non-empty
+
+				if err := op.call(context.Background(), s, id); !errors.Is(err, ErrNotFound) {
+					t.Fatalf("%s(%d) error = %v; want ErrNotFound", op.name, id, err)
+				}
+			})
+		}
 	}
 }
 
-func TestToggle_TwiceRestoresState(t *testing.T) {
-	s := NewMemory()
-	ctx := context.Background()
-	task, _ := s.Create(ctx, "x")
+// ---------------------------------------------------------------------------
+// Toggle
+// ---------------------------------------------------------------------------
 
-	got, _ := s.Toggle(ctx, task.ID)
-	if !got.Done {
+func TestToggle_TwiceRestoresState(t *testing.T) {
+	t.Parallel()
+	s := NewMemory()
+	task := mustCreate(t, s, "x")
+
+	if got := mustToggle(t, s, task.ID); !got.Done {
 		t.Fatal("first toggle: Done = false; want true")
 	}
-	got, _ = s.Toggle(ctx, task.ID)
-	if got.Done {
+	if got := mustToggle(t, s, task.ID); got.Done {
 		t.Fatal("second toggle: Done = true; want false")
 	}
-
-	stored, _ := s.Get(ctx, task.ID)
-	if stored.Done {
+	if stored := mustGet(t, s, task.ID); stored.Done {
 		t.Fatal("stored task Done = true; want false")
 	}
 }
 
-func TestList_OrderedByIDAfterInterleavedOps(t *testing.T) {
+func TestToggle_AffectsOnlyTargetAndKeepsCreatedAt(t *testing.T) {
+	t.Parallel()
 	s := NewMemory()
-	ctx := context.Background()
+	a := mustCreate(t, s, "a")
+	b := mustCreate(t, s, "b")
+
+	mustToggle(t, s, a.ID)
+
+	gotA := mustGet(t, s, a.ID)
+	gotB := mustGet(t, s, b.ID)
+	if !gotA.Done {
+		t.Error("task a: Done = false; want true")
+	}
+	if gotB.Done {
+		t.Error("task b: Done = true; want false (toggle must not leak)")
+	}
+	if !gotA.CreatedAt.Equal(a.CreatedAt) {
+		t.Errorf("task a CreatedAt changed: %v -> %v", a.CreatedAt, gotA.CreatedAt)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// List
+// ---------------------------------------------------------------------------
+
+func TestList_OrderedByIDAfterInterleavedOps(t *testing.T) {
+	t.Parallel()
+	s := NewMemory()
 
 	for _, title := range []string{"a", "b", "c", "d"} {
-		if _, err := s.Create(ctx, title); err != nil {
-			t.Fatal(err)
-		}
+		mustCreate(t, s, title)
 	}
-	if err := s.Delete(ctx, 2); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Create(ctx, "e"); err != nil {
-		t.Fatal(err)
-	}
+	mustDelete(t, s, 2)
+	mustCreate(t, s, "e")
 
-	list, err := s.List(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := listIDs(mustList(t, s))
 	want := []int{1, 3, 4, 5}
-	if len(list) != len(want) {
-		t.Fatalf("len = %d; want %d", len(list), len(want))
-	}
-	for i, task := range list {
-		if task.ID != want[i] {
-			t.Errorf("list[%d].ID = %d; want %d", i, task.ID, want[i])
-		}
+	if !slices.Equal(got, want) {
+		t.Fatalf("list IDs = %v; want %v", got, want)
 	}
 }
 
 func TestList_EmptyReturnsEmptySlice(t *testing.T) {
-	list, err := NewMemory().List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Parallel()
+	list := mustList(t, NewMemory())
+
 	if list == nil || len(list) != 0 {
 		t.Fatalf("List = %#v; want empty non-nil slice", list)
 	}
 }
 
-func TestDelete_DoesNotReuseIDs(t *testing.T) {
-	s := NewMemory()
-	ctx := context.Background()
+// ---------------------------------------------------------------------------
+// Delete
+// ---------------------------------------------------------------------------
 
-	a, _ := s.Create(ctx, "a")
-	if err := s.Delete(ctx, a.ID); err != nil {
-		t.Fatal(err)
+func TestDelete_RemovesTask(t *testing.T) {
+	t.Parallel()
+	s := NewMemory()
+	a := mustCreate(t, s, "a")
+
+	mustDelete(t, s, a.ID)
+
+	if _, err := s.Get(context.Background(), a.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get after Delete error = %v; want ErrNotFound", err)
 	}
-	b, _ := s.Create(ctx, "b")
+	if err := s.Delete(context.Background(), a.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("second Delete error = %v; want ErrNotFound", err)
+	}
+	if n := len(mustList(t, s)); n != 0 {
+		t.Errorf("len(list) = %d; want 0", n)
+	}
+}
+
+func TestDelete_DoesNotReuseIDs(t *testing.T) {
+	t.Parallel()
+	s := NewMemory()
+
+	a := mustCreate(t, s, "a")
+	mustDelete(t, s, a.ID)
+	b := mustCreate(t, s, "b")
 
 	if b.ID == a.ID {
 		t.Fatalf("ID %d was reused after delete", a.ID)
 	}
 }
 
-func TestCancelledContext(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Isolation: callers must not be able to mutate stored state
+// ---------------------------------------------------------------------------
+
+func TestGet_ReturnsCopy(t *testing.T) {
+	t.Parallel()
 	s := NewMemory()
-	task, _ := s.Create(context.Background(), "x")
+	task := mustCreate(t, s, "x")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	got := mustGet(t, s, task.ID)
+	got.Done = true
+	got.Title = "mutated"
 
-	if _, err := s.Create(ctx, "y"); !errors.Is(err, context.Canceled) {
-		t.Errorf("Create error = %v; want context.Canceled", err)
-	}
-	if _, err := s.List(ctx); !errors.Is(err, context.Canceled) {
-		t.Errorf("List error = %v; want context.Canceled", err)
-	}
-	if _, err := s.Get(ctx, task.ID); !errors.Is(err, context.Canceled) {
-		t.Errorf("Get error = %v; want context.Canceled", err)
-	}
-	if _, err := s.Toggle(ctx, task.ID); !errors.Is(err, context.Canceled) {
-		t.Errorf("Toggle error = %v; want context.Canceled", err)
-	}
-	if err := s.Delete(ctx, task.ID); !errors.Is(err, context.Canceled) {
-		t.Errorf("Delete error = %v; want context.Canceled", err)
-	}
-
-	// The cancelled calls must not have changed anything.
-	list, _ := s.List(context.Background())
-	if len(list) != 1 {
-		t.Fatalf("len(list) = %d; want 1", len(list))
+	again := mustGet(t, s, task.ID)
+	if again.Done || again.Title != "x" {
+		t.Fatalf("stored task changed via returned value: %+v", again)
 	}
 }
 
-// Run with: go test -race ./...
+func TestList_ReturnsCopy(t *testing.T) {
+	t.Parallel()
+	s := NewMemory()
+	mustCreate(t, s, "x")
+
+	list := mustList(t, s)
+	list[0].Done = true
+	list[0].Title = "mutated"
+
+	again := mustList(t, s)
+	if again[0].Done || again[0].Title != "x" {
+		t.Fatalf("stored task changed via returned slice: %+v", again[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Context handling
+// ---------------------------------------------------------------------------
+
+func TestContextErrors(t *testing.T) {
+	t.Parallel()
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Hour))
+	defer cancelExpired()
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want error
+	}{
+		{"cancelled", cancelled, context.Canceled},
+		{"deadline exceeded", expired, context.DeadlineExceeded},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewMemory()
+			task := mustCreate(t, s, "x")
+
+			if _, err := s.Create(tt.ctx, "y"); !errors.Is(err, tt.want) {
+				t.Errorf("Create error = %v; want %v", err, tt.want)
+			}
+			if _, err := s.List(tt.ctx); !errors.Is(err, tt.want) {
+				t.Errorf("List error = %v; want %v", err, tt.want)
+			}
+			for _, op := range idOps {
+				if err := op.call(tt.ctx, s, task.ID); !errors.Is(err, tt.want) {
+					t.Errorf("%s error = %v; want %v", op.name, err, tt.want)
+				}
+			}
+
+			// The failed calls must not have changed anything.
+			list := mustList(t, s)
+			if len(list) != 1 {
+				t.Fatalf("len(list) = %d; want 1", len(list))
+			}
+			if list[0].ID != task.ID || list[0].Done {
+				t.Fatalf("task changed by failed calls: %+v", list[0])
+			}
+			if next := mustCreate(t, s, "z"); next.ID != task.ID+1 {
+				t.Fatalf("next ID = %d; want %d (failed Create must not consume an ID)",
+					next.ID, task.ID+1)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency. Run with: go test -race ./...
+// ---------------------------------------------------------------------------
+
 func TestConcurrentCreate_UniqueSequentialIDs(t *testing.T) {
+	t.Parallel()
+
 	const n = 200
 	s := NewMemory()
 	ctx := context.Background()
@@ -198,7 +433,7 @@ func TestConcurrentCreate_UniqueSequentialIDs(t *testing.T) {
 	for id := range ids {
 		got = append(got, id)
 	}
-	sort.Ints(got)
+	slices.Sort(got)
 
 	if len(got) != n {
 		t.Fatalf("created %d tasks; want %d", len(got), n)
@@ -210,21 +445,63 @@ func TestConcurrentCreate_UniqueSequentialIDs(t *testing.T) {
 	}
 }
 
-func TestConcurrentMixedOps_NoRaces(t *testing.T) {
+func TestConcurrentMixedOps(t *testing.T) {
+	t.Parallel()
+
+	const half = 50
 	s := NewMemory()
 	ctx := context.Background()
-	for i := 0; i < 50; i++ {
-		if _, err := s.Create(ctx, "seed"); err != nil {
-			t.Fatal(err)
-		}
+
+	for i := 0; i < 2*half; i++ {
+		mustCreate(t, s, "seed")
 	}
 
+	// IDs 1..half are toggled (and read); IDs half+1..2*half are deleted.
+	// Every ID is written by exactly one goroutine, so the end state is
+	// deterministic even though the interleaving is not.
 	var wg sync.WaitGroup
-	for i := 1; i <= 50; i++ {
+	for id := 1; id <= half; id++ {
 		wg.Add(3)
-		go func(id int) { defer wg.Done(); _, _ = s.Toggle(ctx, id) }(i)
-		go func(id int) { defer wg.Done(); _, _ = s.Get(ctx, id) }(i)
-		go func() { defer wg.Done(); _, _ = s.List(ctx) }()
+		go func(id int) {
+			defer wg.Done()
+			if _, err := s.Toggle(ctx, id); err != nil {
+				t.Errorf("Toggle(%d): %v", id, err)
+			}
+		}(id)
+		go func(id int) {
+			defer wg.Done()
+			if _, err := s.Get(ctx, id); err != nil {
+				t.Errorf("Get(%d): %v", id, err)
+			}
+		}(id)
+		go func() {
+			defer wg.Done()
+			if _, err := s.List(ctx); err != nil {
+				t.Errorf("List: %v", err)
+			}
+		}()
+	}
+	for id := half + 1; id <= 2*half; id++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			if err := s.Delete(ctx, id); err != nil {
+				t.Errorf("Delete(%d): %v", id, err)
+			}
+		}(id)
 	}
 	wg.Wait()
+
+	list := mustList(t, s)
+	if len(list) != half {
+		t.Fatalf("len(list) = %d; want %d", len(list), half)
+	}
+	for i, task := range list {
+		if task.ID != i+1 {
+			t.Errorf("list[%d].ID = %d; want %d", i, task.ID, i+1)
+		}
+		if !task.Done {
+			t.Errorf("task %d: Done = false; want true", task.ID)
+		}
+	}
 }
