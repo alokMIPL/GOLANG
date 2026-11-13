@@ -25,11 +25,6 @@ type clientEntry struct {
 
 // RateLimiter is a per-client token-bucket limiter. Each client key gets its
 // own bucket holding up to burst tokens that refill at limit tokens/second.
-//
-// Memory stays bounded without a background goroutine: idle clients are
-// swept lazily during normal traffic. A client is only forgotten once its
-// bucket has had time to refill completely, so sweeping can never hand
-// someone a fresh quota early.
 type RateLimiter struct {
 	limit   rate.Limit
 	burst   int
@@ -164,10 +159,6 @@ func (rl *RateLimiter) size() int {
 	return len(rl.clients)
 }
 
-// clientIP derives the default client key from RemoteAddr. Ports are ignored,
-// IPv4-mapped IPv6 addresses are unmapped, and IPv6 clients are grouped by /64
-// because a single host usually controls an entire /64, so keying on the full
-// address would let it dodge the limit by rotating addresses.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
