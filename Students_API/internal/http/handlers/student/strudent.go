@@ -17,7 +17,6 @@ import (
 const maxBodyBytes = 1 << 20 // 1 MB
 
 var (
-	// Lowercase messages, per Go lint conventions (ST1005).
 	errEmptyBody       = errors.New("request body must not be empty")
 	errInvalidJSON     = errors.New("request body contains invalid JSON")
 	errInvalidType     = errors.New("request body contains a value of the wrong type")
@@ -59,9 +58,7 @@ func New() http.HandlerFunc {
 	}
 }
 
-// decodeJSON enforces content type, size limit, a single JSON value, and
-// unknown-field rejection. It returns an HTTP status and a client-safe error.
-// Reusable by every other handler (update, login, etc.).
+
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) (int, error) {
 	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
 		return http.StatusUnsupportedMediaType, errUnsupportedType
@@ -76,7 +73,6 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) (int, error) {
 		return decodeError(err)
 	}
 
-	// Anything after the first JSON value (other than whitespace) is an error.
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
