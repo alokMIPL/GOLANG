@@ -421,8 +421,7 @@ func (s *sqliteStore) DeleteCompleted(ctx context.Context) (int64, error) {
 
 // ---------------------------------------------------------------------
 // BatchStore implementation
-// ---------------------------------------------------------------------
-
+// ------------------
 func (s *sqliteStore) CreateMany(ctx context.Context, titles []string) ([]Task, error) {
 	if len(titles) == 0 {
 		return []Task{}, nil

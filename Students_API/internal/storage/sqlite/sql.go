@@ -45,22 +45,14 @@ func validate(cfg config.Config) error {
 	return nil
 }
 
-// Connect opens a MongoDB connection, verifies the server answers a ping, and
-// returns the client together with a handle to the configured database.
-//
-// The caller owns the client and must pass it to Disconnect when finished.
 func Connect(cfg config.Config) (*mongo.Client, *mongo.Database, error) {
 	if err := validate(cfg); err != nil {
 		return nil, nil, err
 	}
 
-	// ctx is the countdown: if connecting or pinging takes longer than
-	// connectTimeout, the operation stops with a deadline-exceeded error.
-	// cancel stops the countdown early and frees the timer.
 	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 	defer cancel()
 
-	// clientOpts holds the driver settings built from the URI in the config.
 	clientOpts := options.Client().
 		ApplyURI(cfg.MongoURI).
 		SetServerSelectionTimeout(serverSelectionTimeout).
@@ -71,22 +63,16 @@ func Connect(cfg config.Config) (*mongo.Client, *mongo.Database, error) {
 		return nil, nil, fmt.Errorf("%w: %w", ErrConnect, err)
 	}
 
-	// A ping is a tiny "are you there?" message. Using the primary read
-	// preference confirms we can reach a node that accepts writes.
 	if err := client.Ping(ctx, readpref.Primary()); err != nil {
-		// Don't leak the client when the ping fails.
 		_ = Disconnect(client)
 		return nil, nil, fmt.Errorf("%w: %w", ErrPing, err)
 	}
 
-	// client.Database only builds a handle; cfg.MongoDB supplies its name.
 	database := client.Database(cfg.MongoDB)
 
 	return client, database, nil
 }
 
-// Disconnect closes the client's connections, waiting at most
-// disconnectTimeout. It is safe to call with a nil client.
 func Disconnect(client *mongo.Client) error {
 	if client == nil {
 		return nil
