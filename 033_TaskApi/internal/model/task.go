@@ -260,11 +260,6 @@ func (p TaskPatch) Apply(t *Task, now time.Time) (bool, error) {
 	return changed, nil
 }
 
-// ---------------------------------------------------------------------
-// listing, filtering and pagination
-// ---------------------------------------------------------------------
-
-// ListParams describes one page of a filtered task listing.
 type ListParams struct {
 	Done   *bool  // nil = both done and pending
 	Query  string // case-insensitive title substring
@@ -273,7 +268,6 @@ type ListParams struct {
 	Offset int
 }
 
-// Normalize fills defaults and clamps values into their valid ranges.
 func (p *ListParams) Normalize() {
 	p.Query = strings.TrimSpace(p.Query)
 	if p.Limit <= 0 {

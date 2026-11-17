@@ -14,15 +14,11 @@ import (
 )
 
 const (
-	// connectTimeout bounds the whole startup (connect + ping), so the app
-	// can't hang forever if MongoDB is unreachable.
+	// connectTimeout bounds the whole startup (connect + ping), so th
 	connectTimeout = 10 * time.Second
 
-	// disconnectTimeout bounds shutdown.
 	disconnectTimeout = 5 * time.Second
 
-	// serverSelectionTimeout is how long the driver searches for a usable
-	// server before giving up.
 	serverSelectionTimeout = 5 * time.Second
 )
 
