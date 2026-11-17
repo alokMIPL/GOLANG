@@ -151,14 +151,10 @@ func WithStrictLength(strict bool) Option {
 	return func(c *config) { c.strictLength = strict }
 }
 
-// NewCatFactFetcher returns a FactFetcher backed by the given client and URL.
-// A nil client gets a default one with a timeout as a safety net; the
-// per-call deadline normally comes from the context.
 func NewCatFactFetcher(client *http.Client, url string) FactFetcher {
 	return NewCatFactFetcherWithOptions(client, url)
 }
 
-// NewCatFactFetcherWithOptions is like NewCatFactFetcher but accepts options.
 func NewCatFactFetcherWithOptions(client *http.Client, url string, opts ...Option) FactFetcher {
 	cfg := &config{
 		client:      client,
