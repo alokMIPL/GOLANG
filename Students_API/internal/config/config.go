@@ -30,7 +30,6 @@ const (
 	EnvProd  = "prod"
 )
 
-// HTTPServer holds the settings for the HTTP server.
 type HTTPServer struct {
 	// Addr is the listen address, e.g. "localhost:8082".
 	// NOTE: the original tag was `env-required: "true"` (with a space), which
@@ -70,17 +69,8 @@ func (c *Config) Validate() error {
 	return errors.Join(errs...)
 }
 
-// IsProd reports whether the app is running in the production environment.
 func (c *Config) IsProd() bool { return c.Env == EnvProd }
 
-// pathFromFlag reads the config path from the -config command-line flag.
-//
-// flag.Parse reads os.Args[1:] (the arguments given when you ran the binary,
-// excluding the program name at index 0), matches them against all registered
-// flags and writes the matched values into the memory the flags point to.
-//
-// The flag is only registered once, so calling MustLoad or Load a second time
-// (for example from tests) does not panic with "flag redefined".
 func pathFromFlag() string {
 	f := flag.Lookup(configFlagName)
 	if f == nil {

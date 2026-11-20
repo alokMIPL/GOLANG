@@ -31,8 +31,6 @@ func defaultLoggerConfig(w io.Writer, level slog.Leveler) loggerConfig {
 	}
 }
 
-// levelFromEnv reads a log level (debug, info, warn, error) from the named
-// environment variable, falling back to the given level if unset or invalid.
 func levelFromEnv(key string, fallback slog.Level) slog.Level {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
@@ -64,7 +62,7 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	return a
 }
 
-// newLoggerFromConfig builds a JSON logger from the given configuration.
+// newLoggerFromConfig builds a JSON logger
 func newLoggerFromConfig(cfg loggerConfig) *slog.Logger {
 	if cfg.Writer == nil {
 		cfg.Writer = os.Stderr
