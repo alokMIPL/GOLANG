@@ -1,152 +1,376 @@
 package notes
 
 import (
+	"context"
 	"errors"
-	"fmt"
+	"reflect"
+	"sort"
 	"strings"
+	"testing"
 	"time"
-	"unicode/utf8"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-const (
-	maxTitleLen   = 200
-	maxContentLen = 10_000
-	maxTags       = 20
-	maxTagLen     = 40
-)
+// ---- in-memory fake repository ------------------------------------------
 
-// Errors returned by this package. Use errors.Is to check for them.
-var (
-	ErrNotFound  = errors.New("notes: not found")
-	ErrInvalidID = errors.New("notes: invalid id")
-)
-
-// ValidationError describes a single invalid field.
-type ValidationError struct {
-	Field   string `json:"field"`
-	Message string `json:"message"`
+type fakeRepo struct {
+	data map[primitive.ObjectID]Note
 }
 
-func (e *ValidationError) Error() string {
-	return fmt.Sprintf("notes: invalid %s: %s", e.Field, e.Message)
+func newFakeRepo() *fakeRepo { return &fakeRepo{data: map[primitive.ObjectID]Note{}} }
+
+func (f *fakeRepo) Create(_ context.Context, n *Note) error {
+	n.ID = primitive.NewObjectID()
+	f.data[n.ID] = *n
+	return nil
 }
 
-// Note is one stored note.
-type Note struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	UserID    string             `bson:"user_id"       json:"user_id"`
-	Title     string             `bson:"title"         json:"title"`
-	Content   string             `bson:"content"       json:"content"`
-	Tags      []string           `bson:"tags"          json:"tags"`
-	Pinned    bool               `bson:"pinned"        json:"pinned"`
-	CreatedAt time.Time          `bson:"created_at"    json:"created_at"`
-	UpdatedAt time.Time          `bson:"updated_at"    json:"updated_at"`
-}
-
-// UpdateInput holds optional changes for a partial update. A nil field means
-// "leave unchanged", which lets callers clear a value (e.g. empty Content)
-// without ambiguity.
-type UpdateInput struct {
-	Title   *string   `json:"title"`
-	Content *string   `json:"content"`
-	Tags    *[]string `json:"tags"`
-	Pinned  *bool     `json:"pinned"`
-}
-
-// IsEmpty reports whether the input changes nothing.
-func (u UpdateInput) IsEmpty() bool {
-	return u.Title == nil && u.Content == nil && u.Tags == nil && u.Pinned == nil
-}
-
-// ListParams controls pagination and filtering for List.
-type ListParams struct {
-	Limit  int64
-	Offset int64
-	Tag    string
-}
-
-// Normalize applies defaults and caps.
-func (p *ListParams) Normalize() {
-	if p.Limit <= 0 {
-		p.Limit = 20
+func (f *fakeRepo) Get(_ context.Context, userID string, id primitive.ObjectID) (*Note, error) {
+	n, ok := f.data[id]
+	if !ok || n.UserID != userID {
+		return nil, ErrNotFound
 	}
-	if p.Limit > 100 {
-		p.Limit = 100
-	}
-	if p.Offset < 0 {
-		p.Offset = 0
-	}
-	p.Tag = strings.TrimSpace(strings.ToLower(p.Tag))
+	return &n, nil
 }
 
-// ParseID converts a hex string into an ObjectID.
-func ParseID(s string) (primitive.ObjectID, error) {
-	id, err := primitive.ObjectIDFromHex(s)
+func (f *fakeRepo) List(_ context.Context, userID string, p ListParams) ([]Note, int64, error) {
+	var all []Note
+	for _, n := range f.data {
+		if n.UserID != userID {
+			continue
+		}
+		if p.Tag != "" && !contains(n.Tags, p.Tag) {
+			continue
+		}
+		all = append(all, n)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].Pinned != all[j].Pinned {
+			return all[i].Pinned
+		}
+		return all[i].UpdatedAt.After(all[j].UpdatedAt)
+	})
+
+	total := int64(len(all))
+	start := min(p.Offset, total)
+	end := min(start+p.Limit, total)
+	return all[start:end], total, nil
+}
+
+func (f *fakeRepo) Update(_ context.Context, userID string, id primitive.ObjectID, p Patch) (*Note, error) {
+	n, ok := f.data[id]
+	if !ok || n.UserID != userID {
+		return nil, ErrNotFound
+	}
+	if p.Title != nil {
+		n.Title = *p.Title
+	}
+	if p.Content != nil {
+		n.Content = *p.Content
+	}
+	if p.Tags != nil {
+		n.Tags = *p.Tags
+	}
+	if p.Pinned != nil {
+		n.Pinned = *p.Pinned
+	}
+	n.UpdatedAt = p.UpdatedAt
+	f.data[id] = n
+	return &n, nil
+}
+
+func (f *fakeRepo) Delete(_ context.Context, userID string, id primitive.ObjectID) error {
+	n, ok := f.data[id]
+	if !ok || n.UserID != userID {
+		return ErrNotFound
+	}
+	delete(f.data, id)
+	return nil
+}
+
+func contains(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+
+// ---- helpers --------------------------------------------------------------
+
+// newTestService returns a service whose clock advances one minute per call.
+func newTestService() *Service {
+	t := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	return NewService(newFakeRepo(), WithClock(func() time.Time {
+		t = t.Add(time.Minute)
+		return t
+	}))
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// ---- tests ----------------------------------------------------------------
+
+func TestNormalizeTags(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      []string
+		want    []string
+		wantMsg bool
+	}{
+		{"nil becomes empty slice", nil, []string{}, false},
+		{"trims, lowers, dedupes", []string{" Go ", "go", "GO", "Mongo"}, []string{"go", "mongo"}, false},
+		{"drops blanks", []string{"", "  ", "a"}, []string{"a"}, false},
+		{"too many", make([]string, maxTags+1), nil, true},
+		{"tag too long", []string{strings.Repeat("x", maxTagLen+1)}, nil, true},
+		{"multibyte counted as runes", []string{strings.Repeat("é", maxTagLen)}, []string{strings.Repeat("é", maxTagLen)}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, msg := normalizeTags(tc.in)
+			if (msg != "") != tc.wantMsg {
+				t.Fatalf("message = %q, wantMsg = %v", msg, tc.wantMsg)
+			}
+			if !tc.wantMsg && !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPrepareCollectsAllErrors(t *testing.T) {
+	n := &Note{
+		Title:   "   ",
+		Content: strings.Repeat("a", maxContentLen+1),
+		Tags:    make([]string, maxTags+1),
+	}
+	err := n.Prepare()
+
+	var verrs ValidationErrors
+	if !errors.As(err, &verrs) {
+		t.Fatalf("expected ValidationErrors, got %T", err)
+	}
+	fields := map[string]bool{}
+	for _, e := range verrs {
+		fields[e.Field] = true
+	}
+	for _, f := range []string{"user_id", "title", "content", "tags"} {
+		if !fields[f] {
+			t.Errorf("missing validation error for %q (got %v)", f, verrs)
+		}
+	}
+
+	var single *ValidationError
+	if !errors.As(err, &single) {
+		t.Error("errors.As should also find an individual *ValidationError")
+	}
+}
+
+func TestValidateDoesNotMutate(t *testing.T) {
+	n := &Note{UserID: "u1", Title: "  Hi  ", Tags: []string{" A "}}
+	if err := n.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if n.Title != "  Hi  " || n.Tags[0] != " A " {
+		t.Fatalf("Validate mutated the note: %+v", n)
+	}
+}
+
+func TestCreateAndGet(t *testing.T) {
+	svc := newTestService()
+	ctx := context.Background()
+
+	created, err := svc.Create(ctx, "u1", CreateInput{
+		Title: "  Groceries ",
+		Tags:  []string{"Home", "home", "TODO"},
+	})
 	if err != nil {
-		return primitive.NilObjectID, ErrInvalidID
+		t.Fatal(err)
 	}
-	return id, nil
+	if created.Title != "Groceries" {
+		t.Errorf("title not trimmed: %q", created.Title)
+	}
+	if !reflect.DeepEqual(created.Tags, []string{"home", "todo"}) {
+		t.Errorf("tags not normalized: %v", created.Tags)
+	}
+	if !created.CreatedAt.Equal(created.UpdatedAt) {
+		t.Error("CreatedAt and UpdatedAt should match on creation")
+	}
+
+	got, err := svc.Get(ctx, "u1", created.ID.Hex())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != created.ID {
+		t.Errorf("got id %s, want %s", got.ID.Hex(), created.ID.Hex())
+	}
 }
 
-// Validate checks a note before it is stored.
-func (n *Note) Validate() error {
-	if strings.TrimSpace(n.UserID) == "" {
-		return &ValidationError{"user_id", "is required"}
+func TestOwnershipIsEnforced(t *testing.T) {
+	svc := newTestService()
+	ctx := context.Background()
+
+	n, err := svc.Create(ctx, "alice", CreateInput{Title: "secret"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := validateTitle(n.Title); err != nil {
-		return err
+	id := n.ID.Hex()
+
+	if _, err := svc.Get(ctx, "bob", id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get as other user: got %v, want ErrNotFound", err)
 	}
-	if err := validateContent(n.Content); err != nil {
-		return err
+	if _, err := svc.Update(ctx, "bob", id, UpdateInput{Pinned: ptr(true)}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Update as other user: got %v, want ErrNotFound", err)
 	}
-	if _, err := normalizeTags(n.Tags); err != nil {
-		return err
+	if err := svc.Delete(ctx, "bob", id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Delete as other user: got %v, want ErrNotFound", err)
 	}
-	return nil
+	if _, err := svc.Get(ctx, "alice", id); err != nil {
+		t.Errorf("owner should still see the note: %v", err)
+	}
 }
 
-func validateTitle(title string) error {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return &ValidationError{"title", "is required"}
+func TestInvalidID(t *testing.T) {
+	svc := newTestService()
+	if _, err := svc.Get(context.Background(), "u1", "not-hex"); !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("got %v, want ErrInvalidID", err)
 	}
-	if utf8.RuneCountInString(title) > maxTitleLen {
-		return &ValidationError{"title", fmt.Sprintf("must be at most %d characters", maxTitleLen)}
-	}
-	return nil
 }
 
-func validateContent(content string) error {
-	if utf8.RuneCountInString(content) > maxContentLen {
-		return &ValidationError{"content", fmt.Sprintf("must be at most %d characters", maxContentLen)}
+func TestUpdatePartialAndClearContent(t *testing.T) {
+	svc := newTestService()
+	ctx := context.Background()
+
+	n, _ := svc.Create(ctx, "u1", CreateInput{Title: "t", Content: "body", Tags: []string{"a"}})
+
+	updated, err := svc.Update(ctx, "u1", n.ID.Hex(), UpdateInput{
+		Content: ptr(""), // explicitly clear
+		Pinned:  ptr(true),
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	return nil
+	if updated.Content != "" {
+		t.Errorf("content should be cleared, got %q", updated.Content)
+	}
+	if !updated.Pinned {
+		t.Error("pinned should be true")
+	}
+	if updated.Title != "t" || !reflect.DeepEqual(updated.Tags, []string{"a"}) {
+		t.Errorf("untouched fields changed: %+v", updated)
+	}
+	if !updated.UpdatedAt.After(n.UpdatedAt) {
+		t.Error("UpdatedAt should move forward")
+	}
 }
 
-// normalizeTags lower-cases, trims and de-duplicates tags, and enforces limits.
-func normalizeTags(tags []string) ([]string, error) {
-	if len(tags) > maxTags {
-		return nil, &ValidationError{"tags", fmt.Sprintf("at most %d tags allowed", maxTags)}
+func TestUpdateRejectsEmptyAndInvalid(t *testing.T) {
+	svc := newTestService()
+	ctx := context.Background()
+	n, _ := svc.Create(ctx, "u1", CreateInput{Title: "keep me"})
+
+	if _, err := svc.Update(ctx, "u1", n.ID.Hex(), UpdateInput{}); !errors.Is(err, ErrEmptyUpdate) {
+		t.Errorf("got %v, want ErrEmptyUpdate", err)
 	}
 
-	seen := make(map[string]struct{}, len(tags))
-	out := make([]string, 0, len(tags))
+	_, err := svc.Update(ctx, "u1", n.ID.Hex(), UpdateInput{
+		Title: ptr("   "),
+		Tags:  ptr(make([]string, maxTags+1)),
+	})
+	var verrs ValidationErrors
+	if !errors.As(err, &verrs) || len(verrs) != 2 {
+		t.Fatalf("expected 2 validation errors, got %v", err)
+	}
 
-	for _, t := range tags {
-		t = strings.ToLower(strings.TrimSpace(t))
-		if t == "" {
-			continue
+	got, _ := svc.Get(ctx, "u1", n.ID.Hex())
+	if got.Title != "keep me" {
+		t.Errorf("invalid update must not change the note, title = %q", got.Title)
+	}
+}
+
+func TestListPaginationOrderingAndFilter(t *testing.T) {
+	svc := newTestService()
+	ctx := context.Background()
+
+	// Created oldest -> newest: n0 .. n4. n1 is pinned.
+	var ids []string
+	for i, title := range []string{"n0", "n1", "n2", "n3", "n4"} {
+		tags := []string{"all"}
+		if i%2 == 0 {
+			tags = append(tags, "even")
 		}
-		if utf8.RuneCountInString(t) > maxTagLen {
-			return nil, &ValidationError{"tags", fmt.Sprintf("each tag must be at most %d characters", maxTagLen)}
+		n, err := svc.Create(ctx, "u1", CreateInput{Title: title, Tags: tags, Pinned: i == 1})
+		if err != nil {
+			t.Fatal(err)
 		}
-		if _, dup := seen[t]; dup {
-			continue
-		}
-		seen[t] = struct{}{}
-		out = append(out, t)
+		ids = append(ids, n.ID.Hex())
 	}
-	return out, nil
+	_ = ids
+	// Another user's note must never appear.
+	if _, err := svc.Create(ctx, "u2", CreateInput{Title: "other"}); err != nil {
+		t.Fatal(err)
+	}
+
+	titles := func(r *ListResult) []string {
+		out := make([]string, len(r.Notes))
+		for i, n := range r.Notes {
+			out[i] = n.Title
+		}
+		return out
+	}
+
+	page1, err := svc.List(ctx, "u1", ListParams{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"n1", "n4"}; !reflect.DeepEqual(titles(page1), want) { // pinned first, then newest
+		t.Errorf("page1 = %v, want %v", titles(page1), want)
+	}
+	if page1.Total != 5 || !page1.HasMore {
+		t.Errorf("page1 meta wrong: %+v", page1)
+	}
+
+	last, _ := svc.List(ctx, "u1", ListParams{Limit: 2, Offset: 4})
+	if len(last.Notes) != 1 || last.HasMore {
+		t.Errorf("last page wrong: %+v", last)
+	}
+
+	even, _ := svc.List(ctx, "u1", ListParams{Tag: "  EVEN "})
+	if even.Total != 3 {
+		t.Errorf("tag filter total = %d, want 3", even.Total)
+	}
+
+	empty, _ := svc.List(ctx, "nobody", ListParams{})
+	if empty.Notes == nil || len(empty.Notes) != 0 {
+		t.Error("empty result should be a non-nil empty slice")
+	}
+}
+
+func TestListParamsNormalize(t *testing.T) {
+	p := ListParams{Limit: 1000, Offset: -5, Tag: "  GoLang "}
+	p.Normalize()
+	if p.Limit != maxLimit || p.Offset != 0 || p.Tag != "golang" {
+		t.Errorf("unexpected normalization: %+v", p)
+	}
+
+	p = ListParams{}
+	p.Normalize()
+	if p.Limit != defaultLimit {
+		t.Errorf("default limit = %d, want %d", p.Limit, defaultLimit)
+	}
+}
+
+func TestDelete(t *testing.T) {
+	svc := newTestService()
+	ctx := context.Background()
+	n, _ := svc.Create(ctx, "u1", CreateInput{Title: "bye"})
+
+	if err := svc.Delete(ctx, "u1", n.ID.Hex()); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(ctx, "u1", n.ID.Hex()); !errors.Is(err, ErrNotFound) {
+		t.Errorf("second delete: got %v, want ErrNotFound", err)
+	}
 }
