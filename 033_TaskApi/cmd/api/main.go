@@ -259,7 +259,6 @@ func withOpsEndpoints(next http.Handler, state *appState) http.Handler {
 	return mux
 }
 
-// writeJSON encodes v as a JSON response with the given status code.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -307,8 +306,6 @@ func logBuildInfo() {
 		runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), os.Getpid())
 }
 
-// envDuration reads a positive whole number of seconds from the environment.
-// Unset, invalid or non-positive values fall back to def.
 func envDuration(name string, def time.Duration) time.Duration {
 	raw := os.Getenv(name)
 	if raw == "" {
@@ -323,7 +320,6 @@ func envDuration(name string, def time.Duration) time.Duration {
 	return time.Duration(secs) * time.Second
 }
 
-// envDurationAllowZero is like envDuration but accepts 0 as a real value.
 func envDurationAllowZero(name string, def time.Duration) time.Duration {
 	raw := os.Getenv(name)
 	if raw == "" {
@@ -338,7 +334,6 @@ func envDurationAllowZero(name string, def time.Duration) time.Duration {
 	return time.Duration(secs) * time.Second
 }
 
-// envInt reads a positive integer from the environment, falling back to def.
 func envInt(name string, def int) int {
 	raw := os.Getenv(name)
 	if raw == "" {
@@ -353,7 +348,6 @@ func envInt(name string, def int) int {
 	return n
 }
 
-// validatePort makes sure the port is a number in the valid TCP range.
 func validatePort(port string) error {
 	n, err := strconv.Atoi(port)
 	if err != nil {
