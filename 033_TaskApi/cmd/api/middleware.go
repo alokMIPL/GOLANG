@@ -6,12 +6,9 @@ import (
 	"time"
 )
 
-// buildHandler wraps the app routes with the health endpoint and the
-// middleware chain. Order matters: recovery is outermost so a panic in any
-// other layer is still caught.
 func buildHandler(routes http.Handler) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle(/", routes)
+	mux.Handle("/", routes)
 	mux.HandleFunc("/healthz", healthHandler)
 
 	var h http.Handler = mux
@@ -27,7 +24,6 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
-// statusRecorder captures the status code written by downstream handlers.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
@@ -38,7 +34,6 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-// loggingMiddleware logs method, path, status and duration for each request.
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -50,7 +45,6 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// recoverMiddleware turns panics into 500 responses instead of crashing.
 func recoverMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
