@@ -27,24 +27,18 @@ const (
 
 var _ http.Handler = (*Handler)(nil)
 
-// FactFetcher lets tests swap in a fake upstream.
 type FactFetcher func(ctx context.Context) (*CatFactResponse, error)
 
-// cacheEntry is immutable once published, so readers never need a lock.
 type cacheEntry struct {
 	fact      CatFactResponse
 	fetchedAt time.Time
 }
 
-// failure records the last upstream error so a broken upstream is not
-// hammered by every incoming request.
 type failure struct {
 	until time.Time
 	err   error
 }
 
-// backoffError is returned when the upstream is failing, nothing usable is
-// cached, and we are inside the backoff window.
 type backoffError struct {
 	until time.Time
 	err   error
@@ -91,15 +85,6 @@ type counters struct {
 	hits, misses, stale, refreshes, refreshErrors atomic.Uint64
 }
 
-// Handler serves a cat fact.
-//
-//   - A fact stays fresh for ttl.
-//   - Concurrent cache misses share one upstream call (singleflight).
-//   - Optionally, expired facts are served immediately while a single
-//     background refresh runs (stale-while-revalidate).
-//   - If a refresh fails, a fact up to ttl+maxStale old is served instead.
-//   - After a failure, upstream is not retried for the backoff duration.
-//   - Failed upstream calls can be retried with exponential delay.
 type Handler struct {
 	fetch      FactFetcher
 	ttl        time.Duration
@@ -142,8 +127,6 @@ func WithTTL(d time.Duration) Option {
 	}
 }
 
-// WithMaxStale sets how long past its TTL a fact may still be served when
-// refreshing fails. Zero disables stale serving.
 func WithMaxStale(d time.Duration) Option {
 	return func(h *Handler) {
 		if d >= 0 {
@@ -152,7 +135,6 @@ func WithMaxStale(d time.Duration) Option {
 	}
 }
 
-// WithTimeout bounds each refresh, including retries.
 func WithTimeout(d time.Duration) Option {
 	return func(h *Handler) {
 		if d > 0 {
@@ -161,8 +143,6 @@ func WithTimeout(d time.Duration) Option {
 	}
 }
 
-// WithBackoff sets how long to leave upstream alone after a failed refresh.
-// Zero disables the backoff.
 func WithBackoff(d time.Duration) Option {
 	return func(h *Handler) {
 		if d >= 0 {
@@ -430,10 +410,6 @@ func (h *Handler) refreshAsync(ctx context.Context) {
 	}()
 }
 
-// refresh calls upstream and publishes the result. It runs inside a
-// singleflight, so it is detached from the triggering request's cancellation:
-// one impatient client must not fail the fetch for everyone waiting on it.
-// The timeout still bounds it, and context values (trace IDs) are kept.
 func (h *Handler) refresh(ctx context.Context) (e *cacheEntry, err error) {
 	h.stats.refreshes.Add(1)
 
