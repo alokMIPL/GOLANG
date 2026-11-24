@@ -145,7 +145,6 @@ func run() error {
 	}
 	settings.logSummary()
 
-	// Dependencies.
 	taskStore := store.NewMemory()
 	h := handler.New(taskStore)
 
