@@ -55,24 +55,13 @@ type Config struct {
 	MaxBodyBytes int64
 
 	// Shutdown.
-	ShutdownDelay   time.Duration // wait after SIGTERM so load balancers stop routing
-	ShutdownTimeout time.Duration // max time to drain in-flight requests
-
-	// Logging.
-	LogLevel  slog.Level
-	LogFormat LogFormat
-
-	// CORSAllowedOrigins holds normalized origins (scheme://host[:port]) or,
-	// outside production only, "*".
+	ShutdownDelay      time.Duration // wait after SIGTERM so load balancers stop routing
+	ShutdownTimeout    time.Duration // max time to drain in-flight requests
+	LogLevel           slog.Level
+	LogFormat          LogFormat
 	CORSAllowedOrigins []string
 }
 
-// Load reads configuration through getenv, applies defaults, and validates
-// the result. All problems are reported together via errors.Join. On any
-// error the returned Config is the zero value.
-//
-// APP_ENV is required: silently defaulting to a permissive tier would let a
-// production deploy that forgets one variable skip its safety checks.
 func Load(getenv func(string) string) (Config, error) {
 	if getenv == nil {
 		return Config{}, errors.New("config: getenv must not be nil")
@@ -115,8 +104,6 @@ func Load(getenv func(string) string) (Config, error) {
 		CORSAllowedOrigins: l.origins("CORS_ALLOWED_ORIGINS", env != EnvProduction),
 	}
 
-	// Cross-field rules only make sense when every field parsed cleanly;
-	// otherwise fallback defaults would produce misleading secondary errors.
 	if len(l.errs) == 0 {
 		l.errs = cfg.validate()
 	}
@@ -126,7 +113,6 @@ func Load(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
-// validate enforces rules that span several fields.
 func (c Config) validate() []error {
 	var errs []error
 
@@ -136,8 +122,6 @@ func (c Config) validate() []error {
 			c.ReadHeaderTimeout, c.ReadTimeout))
 	}
 
-	// If draining is shorter than a request may legitimately run, shutdown
-	// would cut off requests that were still within their write deadline.
 	if c.ShutdownTimeout < c.WriteTimeout {
 		errs = append(errs, fmt.Errorf(
 			"SHUTDOWN_TIMEOUT (%s) must be at least WRITE_TIMEOUT (%s)",
@@ -147,12 +131,8 @@ func (c Config) validate() []error {
 	return errs
 }
 
-// IsProduction reports whether the service runs in production.
 func (c Config) IsProduction() bool { return c.Env == EnvProduction }
 
-// LogValue implements slog.LogValuer so the config can be logged safely with
-// logger.Info("config", "config", cfg). Add redaction here if secrets are
-// ever introduced. A test asserts this stays in sync with the struct fields.
 func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("env", string(c.Env)),
@@ -171,10 +151,6 @@ func (c Config) LogValue() slog.Value {
 	)
 }
 
-// ---------------------------------------------------------------------------
-// loader: typed env readers that collect errors instead of failing on the first.
-// ---------------------------------------------------------------------------
-
 type loader struct {
 	getenv func(string) string
 	errs   []error
@@ -184,7 +160,6 @@ func (l *loader) fail(key, format string, args ...any) {
 	l.errs = append(l.errs, fmt.Errorf("%s: %s", key, fmt.Sprintf(format, args...)))
 }
 
-// str returns the trimmed value of key, or def when unset or blank.
 func (l *loader) str(key, def string) string {
 	if v := strings.TrimSpace(l.getenv(key)); v != "" {
 		return v
@@ -192,8 +167,6 @@ func (l *loader) str(key, def string) string {
 	return def
 }
 
-// port returns a TCP port as a string. Port 0 is allowed so tests can ask
-// the OS for a free port.
 func (l *loader) port(key string, def uint16) string {
 	raw := l.str(key, "")
 	if raw == "" {
@@ -207,13 +180,10 @@ func (l *loader) port(key string, def uint16) string {
 	return strconv.FormatUint(n, 10)
 }
 
-// duration parses a strictly positive time.Duration such as "5s" or "1m30s".
 func (l *loader) duration(key string, def time.Duration) time.Duration {
 	return l.boundedDuration(key, def, false, 0)
 }
 
-// boundedDuration parses a duration that must be positive (or non-negative
-// when allowZero is set) and, if hi > 0, no greater than hi.
 func (l *loader) boundedDuration(key string, def time.Duration, allowZero bool, hi time.Duration) time.Duration {
 	raw := l.str(key, "")
 	if raw == "" {
@@ -238,7 +208,6 @@ func (l *loader) boundedDuration(key string, def time.Duration, allowZero bool, 
 	return d
 }
 
-// int64 parses an integer and checks it lies within [lo, hi].
 func (l *loader) int64(key string, def, lo, hi int64) int64 {
 	raw := l.str(key, "")
 	if raw == "" {
@@ -256,8 +225,6 @@ func (l *loader) int64(key string, def, lo, hi int64) int64 {
 	return n
 }
 
-// oneOf returns the value of key if it is in allowed (case-insensitive),
-// or def when unset.
 func (l *loader) oneOf(key, def string, allowed ...string) string {
 	raw := l.str(key, "")
 	if raw == "" {
@@ -270,7 +237,6 @@ func (l *loader) oneOf(key, def string, allowed ...string) string {
 	return def
 }
 
-// requiredOneOf is like oneOf but reports an error when key is unset.
 func (l *loader) requiredOneOf(key string, allowed ...string) string {
 	raw := l.str(key, "")
 	if raw == "" {
@@ -293,7 +259,6 @@ func match(raw string, allowed []string) (string, bool) {
 	return "", false
 }
 
-// list splits a comma-separated value, trimming blanks and dropping empties.
 func (l *loader) list(key string) []string {
 	var out []string
 	for _, part := range strings.Split(l.getenv(key), ",") {
@@ -304,8 +269,6 @@ func (l *loader) list(key string) []string {
 	return out
 }
 
-// origins parses a list of CORS origins, normalizing and de-duplicating them.
-// "*" is accepted only when allowWildcard is true.
 func (l *loader) origins(key string, allowWildcard bool) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -331,8 +294,6 @@ func (l *loader) origins(key string, allowWildcard bool) []string {
 	return out
 }
 
-// normalizeOrigin accepts only scheme://host[:port], the exact shape of a
-// browser Origin header, and lowercases it so comparisons are reliable.
 func normalizeOrigin(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -348,7 +309,6 @@ func normalizeOrigin(raw string) (string, error) {
 	return u.Scheme + "://" + strings.ToLower(u.Host), nil
 }
 
-// logLevel parses debug, info, warn, or error (and offsets like "info+2").
 func (l *loader) logLevel(key string, def slog.Level) slog.Level {
 	raw := l.str(key, "")
 	if raw == "" {
