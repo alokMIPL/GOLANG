@@ -207,15 +207,10 @@ func parseListParams(q url.Values) (ListParams, error) {
 	return p, nil
 }
 
-// ---------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------
-
 func (a *api) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// ready reports whether dependencies (the database) are reachable.
 func (a *api) ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
