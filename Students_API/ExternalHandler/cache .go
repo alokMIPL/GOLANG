@@ -6,21 +6,16 @@ import (
 	"time"
 )
 
-// cacheEntry is immutable once published, so readers never need a lock.
 type cacheEntry struct {
 	fact      CatFactResponse
 	fetchedAt time.Time
 }
 
-// failure records the last upstream error so a broken upstream is not
-// hammered by every incoming request.
 type failure struct {
 	until time.Time
 	err   error
 }
 
-// backoffError is returned when the upstream is failing, nothing usable is
-// cached, and we are inside the backoff window.
 type backoffError struct {
 	until time.Time
 	err   error
@@ -54,23 +49,20 @@ type result struct {
 	age   time.Duration
 }
 
-// Stats is a point-in-time snapshot of handler counters.
 type Stats struct {
-	Hits          uint64 // served from a fresh cache entry
-	Misses        uint64 // had to wait for upstream
-	StaleServed   uint64 // served an expired entry (fallback or background refresh)
-	Refreshes     uint64 // upstream calls started
-	RefreshErrors uint64 // upstream calls that failed
+	Hits          uint64
+	Misses        uint64
+	StaleServed   uint64
+	Refreshes     uint64
+	RefreshErrors uint64
 }
 
 type counters struct {
 	hits, misses, stale, refreshes, refreshErrors atomic.Uint64
 }
 
-// get resolves a fact through the cache layers, in order:
-// fresh hit -> background-refreshed stale -> backoff fallback -> upstream.
 func (h *Handler) get(ctx context.Context) (result, error) {
-	now := h.now() // read once so every decision below sees the same instant
+	now := h.now()
 	e := h.entry.Load()
 
 	if e != nil {
@@ -88,7 +80,6 @@ func (h *Handler) get(ctx context.Context) (result, error) {
 
 	h.stats.misses.Add(1)
 
-	// Upstream recently failed: don't make this request pay for another try.
 	if f := h.failure.Load(); f != nil && now.Before(f.until) {
 		if res, ok := h.staleResult(e, now); ok {
 			h.stats.stale.Add(1)
@@ -114,7 +105,6 @@ func (h *Handler) get(ctx context.Context) (result, error) {
 	}
 }
 
-// staleResult returns e if it is still inside the stale window.
 func (h *Handler) staleResult(e *cacheEntry, now time.Time) (result, bool) {
 	if e == nil {
 		return result{}, false
