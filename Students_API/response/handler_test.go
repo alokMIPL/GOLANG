@@ -40,7 +40,6 @@ func (c *fakeClock) Advance(d time.Duration) {
 	c.now = c.now.Add(d)
 }
 
-// countingFetcher wraps a fake upstream and counts how often it is called.
 type countingFetcher struct {
 	calls atomic.Int32
 	fn    FactFetcher
@@ -135,7 +134,6 @@ func TestHandler_CacheHit(t *testing.T) {
 
 	assertStatus(t, serve(h, http.MethodGet), http.StatusOK)
 	clk.Advance(10 * time.Second)
-
 	rec := serve(h, http.MethodGet)
 	assertStatus(t, rec, http.StatusOK)
 	assertHeader(t, rec, "X-Cache", "HIT")
@@ -189,7 +187,6 @@ func TestHandler_ServesStaleOnUpstreamFailure(t *testing.T) {
 	}
 	assertCalls(t, cf, 2)
 
-	// Still inside the backoff window: stale is served without touching upstream.
 	rec = serve(h, http.MethodGet)
 	assertStatus(t, rec, http.StatusOK)
 	assertHeader(t, rec, "X-Cache", "STALE")
@@ -263,13 +260,11 @@ func TestHandler_Backoff(t *testing.T) {
 
 	assertStatus(t, serve(h, http.MethodGet), http.StatusBadGateway)
 
-	// Inside the backoff window upstream must not be hit again.
 	rec := serve(h, http.MethodGet)
 	assertStatus(t, rec, http.StatusServiceUnavailable)
 	assertHeader(t, rec, "Retry-After", "2")
 	assertCalls(t, cf, 1)
 
-	// After the window, upstream is tried again and recovers.
 	fail.Store(false)
 	clk.Advance(2 * time.Second)
 	assertStatus(t, serve(h, http.MethodGet), http.StatusOK)
@@ -280,7 +275,7 @@ func TestHandler_Retries(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
-		failFirst int32 // number of initial calls that fail
+		failFirst int32
 		retries   int
 		wantCode  int
 		wantCalls int32
