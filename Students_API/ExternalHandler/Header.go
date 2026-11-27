@@ -58,10 +58,6 @@ func (a *api) routes() *http.ServeMux {
 	return mux
 }
 
-// ---------------------------------------------------------------------
-// Response helpers
-// ---------------------------------------------------------------------
-
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	// Marshal first so an encoding failure becomes a clean 500 rather than a
 	// truncated 200.
@@ -123,8 +119,6 @@ func respondDecodeError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusBadRequest, "invalid JSON body")
 }
 
-// decodeJSON enforces a JSON content type and body size limit, rejects unknown
-// fields and trailing data, and returns *apiError with a precise status.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mt != "application/json" {
@@ -289,7 +283,6 @@ func (a *api) getTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, task)
 }
 
-// PUT /tasks/{id}: full replacement . A missing "done" means false.
 func (a *api) replaceTask(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {

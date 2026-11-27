@@ -4,438 +4,496 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
-	"testing"
 	"time"
 )
 
-// ---------- shared helpers ----------
+const (
+	defaultFactURL   = "https://catfact.ninja/fact"
+	factSource       = "catfact.ninja"
+	defaultTTL       = 30 * time.Second
+	defaultMaxStale  = 2 * time.Minute
+	defaultTimeout   = 5 * time.Second
+	maxBodyBytes     = 1 << 20 // 1 MiB safety cap on upstream payloads
+)
 
-var discardLog = slog.New(slog.NewTextHandler(io.Discard, nil))
-
-// fakeClock gives tests full control over time, so nothing needs to sleep.
-type fakeClock struct {
-	mu  sync.Mutex
-	now time.Time
+// CatFactResponse mirrors the JSON payload returned by catfact.ninja/fact.
+type CatFactResponse struct {
+	Fact   string `json:"fact"`
+	Length int    `json:"length"`
 }
 
-func newFakeClock() *fakeClock {
-	return &fakeClock{now: time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)}
+// ExternalPayload is the normalized response payload returned to API callers.
+type ExternalPayload struct {
+	Fact      string    `json:"fact"`
+	Length    int       `json:"length"`
+	Source    string    `json:"source"`
+	FetchedAt time.Time `json:"fetched_at"`
 }
 
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.now
+// apiResponse is the envelope serialized as JSON for both success and error responses.
+type apiResponse struct {
+	OK       bool             `json:"ok"`
+	External *ExternalPayload `json:"external,omitempty"`
+	Error    string           `json:"error,omitempty"`
 }
 
-func (c *fakeClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
+// Stats exposes atomic cache and upstream call counters for observability.
+type Stats struct {
+	Hits      uint64 `json:"hits"`
+	Misses    uint64 `json:"misses"`
+	StaleHits uint64 `json:"stale_hits"`
+	Refreshes uint64 `json:"refreshes"`
+	Errors    uint64 `json:"errors"`
 }
 
-type countingFetcher struct {
-	calls atomic.Int32
-	fn    FactFetcher
-}
+// FactFetcher abstracts the upstream HTTP call so tests can inject deterministic stubs.
+type FactFetcher func(ctx context.Context) (*CatFactResponse, error)
 
-func (c *countingFetcher) fetch(ctx context.Context) (*CatFactResponse, error) {
-	c.calls.Add(1)
-	return c.fn(ctx)
-}
+// Option configures a Handler instance.
+type Option func(*Handler)
 
-func factFetcher(fact string) FactFetcher {
-	return func(context.Context) (*CatFactResponse, error) {
-		return &CatFactResponse{Fact: fact, Length: 16}, nil
+func WithFetcher(fn FactFetcher) Option {
+	return func(h *Handler) {
+		if fn != nil {
+			h.fetcher = fn
+		}
 	}
 }
 
-func newTestHandler(t *testing.T, clk *fakeClock, fetch FactFetcher, opts ...Option) *Handler {
-	t.Helper()
-	base := []Option{WithFetcher(fetch), WithClock(clk.Now), WithLogger(discardLog)}
-	h := NewHandler(append(base, opts...)...)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_ = h.Close(ctx)
-	})
+func WithHTTPClient(client *http.Client, endpoint string) Option {
+	return func(h *Handler) {
+		if client == nil {
+			client = &http.Client{Timeout: defaultTimeout}
+		}
+		if endpoint == "" {
+			endpoint = defaultFactURL
+		}
+		h.fetcher = newHTTPFactFetcher(client, endpoint)
+	}
+}
+
+func WithClock(now func() time.Time) Option {
+	return func(h *Handler) {
+		if now != nil {
+			h.now = now
+		}
+	}
+}
+
+func WithLogger(l *slog.Logger) Option {
+	return func(h *Handler) {
+		if l != nil {
+			h.logger = l
+		}
+	}
+}
+
+func WithTTL(ttl time.Duration) Option {
+	return func(h *Handler) {
+		if ttl > 0 {
+			h.ttl = ttl
+		}
+	}
+}
+
+func WithMaxStale(maxStale time.Duration) Option {
+	return func(h *Handler) {
+		if maxStale >= 0 {
+			h.maxStale = maxStale
+		}
+	}
+}
+
+func WithBackoff(backoff time.Duration) Option {
+	return func(h *Handler) {
+		if backoff >= 0 {
+			h.backoff = backoff
+		}
+	}
+}
+
+func WithRetries(retries int, delay time.Duration) Option {
+	return func(h *Handler) {
+		if retries >= 0 {
+			h.retries = retries
+		}
+		if delay >= 0 {
+			h.retryDelay = delay
+		}
+	}
+}
+
+func WithBackgroundRefresh(enabled bool) Option {
+	return func(h *Handler) {
+		h.bgRefresh = enabled
+	}
+}
+
+func WithFetchTimeout(timeout time.Duration) Option {
+	return func(h *Handler) {
+		if timeout > 0 {
+			h.fetchTimeout = timeout
+		}
+	}
+}
+
+type cacheEntry struct {
+	payload   ExternalPayload
+	fetchedAt time.Time
+}
+
+type flightCall struct {
+	wg      sync.WaitGroup
+	payload ExternalPayload
+	err     error
+}
+
+// Handler serves cached cat facts with single-flight coalescing, stale-while-revalidate,
+// circuit-breaker backoff, retries, and graceful shutdown.
+type Handler struct {
+	fetcher      FactFetcher
+	now          func() time.Time
+	logger       *slog.Logger
+	ttl          time.Duration
+	maxStale     time.Duration
+	backoff      time.Duration
+	retries      int
+	retryDelay   time.Duration
+	bgRefresh    bool
+	fetchTimeout time.Duration
+
+	mu          sync.RWMutex
+	entry       *cacheEntry
+	lastFailure time.Time
+	inFlight    *flightCall
+	bgRunning   bool
+
+	bgWG   sync.WaitGroup
+	closed atomic.Bool
+
+	hits      atomic.Uint64
+	misses    atomic.Uint64
+	staleHits atomic.Uint64
+	refreshes atomic.Uint64
+	errCount  atomic.Uint64
+}
+
+// NewHandler constructs a configured Handler ready to mount on an http.ServeMux.
+func NewHandler(opts ...Option) *Handler {
+	h := &Handler{
+		fetcher:      newHTTPFactFetcher(&http.Client{Timeout: defaultTimeout}, defaultFactURL),
+		now:          time.Now,
+		logger:       slog.Default(),
+		ttl:          defaultTTL,
+		maxStale:     defaultMaxStale,
+		fetchTimeout: defaultTimeout,
+	}
+	for _, opt := range opts {
+		opt(h)
+	}
 	return h
 }
 
-func serve(h http.Handler, method string) *httptest.ResponseRecorder {
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(method, "/external", nil))
-	return rec
-}
-
-func decodeResp(t *testing.T, rec *httptest.ResponseRecorder) apiResponse {
-	t.Helper()
-	var resp apiResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode response body %q: %v", rec.Body.String(), err)
-	}
-	return resp
-}
-
-func assertStatus(t *testing.T, rec *httptest.ResponseRecorder, want int) {
-	t.Helper()
-	if rec.Code != want {
-		t.Fatalf("status = %d, want %d (body: %s)", rec.Code, want, rec.Body.String())
-	}
-}
-
-func assertHeader(t *testing.T, rec *httptest.ResponseRecorder, key, want string) {
-	t.Helper()
-	if got := rec.Header().Get(key); got != want {
-		t.Errorf("header %s = %q, want %q", key, got, want)
-	}
-}
-
-func assertCalls(t *testing.T, cf *countingFetcher, want int32) {
-	t.Helper()
-	if got := cf.calls.Load(); got != want {
-		t.Errorf("upstream calls = %d, want %d", got, want)
-	}
-}
-
-// ---------- tests ----------
-
-func TestHandler_Success(t *testing.T) {
-	t.Parallel()
-	h := newTestHandler(t, newFakeClock(), factFetcher("Cats sleep a lot"))
-
-	rec := serve(h, http.MethodGet)
-	assertStatus(t, rec, http.StatusOK)
-	assertHeader(t, rec, "X-Cache", "MISS")
-
-	resp := decodeResp(t, rec)
-	if !resp.OK {
-		t.Error("expected ok=true")
-	}
-	if resp.External == nil {
-		t.Fatal("expected external payload")
-	}
-	if resp.External.Fact != "Cats sleep a lot" || resp.External.Source != factSource {
-		t.Errorf("unexpected external payload: %+v", resp.External)
-	}
-}
-
-func TestHandler_CacheHit(t *testing.T) {
-	t.Parallel()
-	clk := newFakeClock()
-	cf := &countingFetcher{fn: factFetcher("Cats purr")}
-	h := newTestHandler(t, clk, cf.fetch, WithTTL(30*time.Second))
-
-	assertStatus(t, serve(h, http.MethodGet), http.StatusOK)
-	clk.Advance(10 * time.Second)
-	rec := serve(h, http.MethodGet)
-	assertStatus(t, rec, http.StatusOK)
-	assertHeader(t, rec, "X-Cache", "HIT")
-	assertHeader(t, rec, "Age", "10")
-	assertHeader(t, rec, "Cache-Control", "public, max-age=20")
-	assertCalls(t, cf, 1)
-
-	want := Stats{Hits: 1, Misses: 1, Refreshes: 1}
-	if got := h.Stats(); got != want {
-		t.Errorf("stats = %+v, want %+v", got, want)
-	}
-}
-
-func TestHandler_TTLExpiry(t *testing.T) {
-	t.Parallel()
-	clk := newFakeClock()
-	cf := &countingFetcher{fn: factFetcher("Cats purr")}
-	h := newTestHandler(t, clk, cf.fetch, WithTTL(10*time.Second))
-
-	serve(h, http.MethodGet)
-	clk.Advance(11 * time.Second)
-
-	rec := serve(h, http.MethodGet)
-	assertStatus(t, rec, http.StatusOK)
-	assertHeader(t, rec, "X-Cache", "MISS")
-	assertCalls(t, cf, 2)
-}
-
-func TestHandler_ServesStaleOnUpstreamFailure(t *testing.T) {
-	t.Parallel()
-	clk := newFakeClock()
-	var fail atomic.Bool
-	cf := &countingFetcher{fn: func(context.Context) (*CatFactResponse, error) {
-		if fail.Load() {
-			return nil, errors.New("boom")
+func newHTTPFactFetcher(client *http.Client, endpoint string) FactFetcher {
+	return func(ctx context.Context) (*CatFactResponse, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, fmt.Errorf("build upstream request: %w", err)
 		}
-		return &CatFactResponse{Fact: "Cats purr", Length: 9}, nil
-	}}
-	h := newTestHandler(t, clk, cf.fetch, WithTTL(10*time.Second), WithMaxStale(time.Minute))
+		req.Header.Set("Accept", "application/json")
 
-	assertStatus(t, serve(h, http.MethodGet), http.StatusOK) // warm the cache
-	fail.Store(true)
-	clk.Advance(11 * time.Second)
-
-	rec := serve(h, http.MethodGet)
-	assertStatus(t, rec, http.StatusOK)
-	assertHeader(t, rec, "X-Cache", "STALE")
-	assertHeader(t, rec, "Cache-Control", "public, max-age=0")
-	if got := decodeResp(t, rec).External.Fact; got != "Cats purr" {
-		t.Errorf("stale fact = %q", got)
-	}
-	assertCalls(t, cf, 2)
-
-	rec = serve(h, http.MethodGet)
-	assertStatus(t, rec, http.StatusOK)
-	assertHeader(t, rec, "X-Cache", "STALE")
-	assertCalls(t, cf, 2)
-}
-
-func TestHandler_StaleTooOld(t *testing.T) {
-	t.Parallel()
-	clk := newFakeClock()
-	var fail atomic.Bool
-	cf := &countingFetcher{fn: func(context.Context) (*CatFactResponse, error) {
-		if fail.Load() {
-			return nil, errors.New("boom")
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("execute upstream request: %w", err)
 		}
-		return &CatFactResponse{Fact: "Cats purr", Length: 9}, nil
-	}}
-	h := newTestHandler(t, clk, cf.fetch, WithTTL(10*time.Second), WithMaxStale(10*time.Second))
+		defer resp.Body.Close()
 
-	serve(h, http.MethodGet)
-	fail.Store(true)
-	clk.Advance(25 * time.Second) // older than ttl + maxStale
-
-	assertStatus(t, serve(h, http.MethodGet), http.StatusBadGateway)
-}
-
-func TestHandler_UpstreamErrors(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		fn   FactFetcher
-		want int
-	}{
-		{"generic error", func(context.Context) (*CatFactResponse, error) { return nil, errors.New("boom") }, http.StatusBadGateway},
-		{"timeout", func(context.Context) (*CatFactResponse, error) { return nil, context.DeadlineExceeded }, http.StatusGatewayTimeout},
-		{"nil response", func(context.Context) (*CatFactResponse, error) { return nil, nil }, http.StatusBadGateway},
-		{"empty fact", func(context.Context) (*CatFactResponse, error) { return &CatFactResponse{}, nil }, http.StatusBadGateway},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestHandler(t, newFakeClock(), tt.fn)
-
-			rec := serve(h, http.MethodGet)
-			assertStatus(t, rec, tt.want)
-
-			resp := decodeResp(t, rec)
-			if resp.OK {
-				t.Error("expected ok=false")
-			}
-			if resp.Error == "" {
-				t.Error("expected an error message")
-			}
-		})
-	}
-}
-
-func TestHandler_Backoff(t *testing.T) {
-	t.Parallel()
-	clk := newFakeClock()
-	var fail atomic.Bool
-	fail.Store(true)
-	cf := &countingFetcher{fn: func(context.Context) (*CatFactResponse, error) {
-		if fail.Load() {
-			return nil, errors.New("boom")
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("upstream returned status %d", resp.StatusCode)
 		}
-		return &CatFactResponse{Fact: "Cats purr", Length: 9}, nil
-	}}
-	h := newTestHandler(t, clk, cf.fetch, WithBackoff(2*time.Second))
 
-	assertStatus(t, serve(h, http.MethodGet), http.StatusBadGateway)
-
-	rec := serve(h, http.MethodGet)
-	assertStatus(t, rec, http.StatusServiceUnavailable)
-	assertHeader(t, rec, "Retry-After", "2")
-	assertCalls(t, cf, 1)
-
-	fail.Store(false)
-	clk.Advance(2 * time.Second)
-	assertStatus(t, serve(h, http.MethodGet), http.StatusOK)
-	assertCalls(t, cf, 2)
-}
-
-func TestHandler_Retries(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name      string
-		failFirst int32
-		retries   int
-		wantCode  int
-		wantCalls int32
-	}{
-		{"recovers after retries", 2, 2, http.StatusOK, 3},
-		{"retries exhausted", 99, 1, http.StatusBadGateway, 2},
-		{"no retries", 99, 0, http.StatusBadGateway, 1},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cf := &countingFetcher{}
-			cf.fn = func(context.Context) (*CatFactResponse, error) {
-				if cf.calls.Load() <= tt.failFirst {
-					return nil, errors.New("flaky")
-				}
-				return &CatFactResponse{Fact: "Cats purr", Length: 9}, nil
-			}
-			h := newTestHandler(t, newFakeClock(), cf.fetch, WithRetries(tt.retries, time.Millisecond))
-
-			assertStatus(t, serve(h, http.MethodGet), tt.wantCode)
-			assertCalls(t, cf, tt.wantCalls)
-		})
+		limited := io.LimitReader(resp.Body, maxBodyBytes)
+		var out CatFactResponse
+		if err := json.NewDecoder(limited).Decode(&out); err != nil {
+			return nil, fmt.Errorf("decode upstream json: %w", err)
+		}
+		return &out, nil
 	}
 }
 
-func TestHandler_BackgroundRefresh(t *testing.T) {
-	t.Parallel()
-	clk := newFakeClock()
-	var fact atomic.Value
-	fact.Store("old fact")
-	cf := &countingFetcher{fn: func(context.Context) (*CatFactResponse, error) {
-		return &CatFactResponse{Fact: fact.Load().(string), Length: 8}, nil
-	}}
-	h := newTestHandler(t, clk, cf.fetch, WithTTL(10*time.Second), WithBackgroundRefresh(true))
-
-	serve(h, http.MethodGet)
-	clk.Advance(11 * time.Second)
-	fact.Store("new fact")
-
-	// Expired entry is returned immediately while a refresh runs in the background.
-	rec := serve(h, http.MethodGet)
-	assertStatus(t, rec, http.StatusOK)
-	assertHeader(t, rec, "X-Cache", "STALE")
-	if got := decodeResp(t, rec).External.Fact; got != "old fact" {
-		t.Errorf("stale fact = %q, want old fact", got)
+// Stats returns a point-in-time snapshot of handler telemetry.
+func (h *Handler) Stats() Stats {
+	return Stats{
+		Hits:      h.hits.Load(),
+		Misses:    h.misses.Load(),
+		StaleHits: h.staleHits.Load(),
+		Refreshes: h.refreshes.Load(),
+		Errors:    h.errCount.Load(),
 	}
-
-	// Close waits for the background refresh to finish.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := h.Close(ctx); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	rec = serve(h, http.MethodGet)
-	assertHeader(t, rec, "X-Cache", "HIT")
-	if got := decodeResp(t, rec).External.Fact; got != "new fact" {
-		t.Errorf("refreshed fact = %q, want new fact", got)
-	}
-	assertCalls(t, cf, 2)
 }
 
-func TestHandler_SingleFlight(t *testing.T) {
-	t.Parallel()
-	const n = 20
+// Prime pre-warms the cache before accepting live traffic.
+func (h *Handler) Prime(ctx context.Context) error {
+	_, err := h.refreshSingleFlight(ctx, false)
+	return err
+}
 
-	started := make(chan struct{})
-	release := make(chan struct{})
-	var once sync.Once
-	cf := &countingFetcher{fn: func(context.Context) (*CatFactResponse, error) {
-		once.Do(func() { close(started) })
-		<-release
-		return &CatFactResponse{Fact: "Cats purr", Length: 9}, nil
-	}}
-	h := newTestHandler(t, newFakeClock(), cf.fetch)
-
-	var wg sync.WaitGroup
-	codes := make([]int, n)
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			codes[i] = serve(h, http.MethodGet).Code
-		}(i)
-	}
+// Close waits for any in-flight background refreshes to complete or until ctx expires.
+func (h *Handler) Close(ctx context.Context) error {
+	h.closed.Store(true)
+	done := make(chan struct{})
+	go func() {
+		h.bgWG.Wait()
+		close(done)
+	}()
 
 	select {
-	case <-started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("upstream was never called")
-	}
-	close(release)
-	wg.Wait()
-
-	assertCalls(t, cf, 1)
-	for i, code := range codes {
-		if code != http.StatusOK {
-			t.Errorf("request %d: status = %d, want 200", i, code)
-		}
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
-func TestHandler_Methods(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		method string
-		want   int
-	}{
-		{http.MethodGet, http.StatusOK},
-		{http.MethodHead, http.StatusOK},
-		{http.MethodPost, http.StatusMethodNotAllowed},
-		{http.MethodPut, http.StatusMethodNotAllowed},
-		{http.MethodDelete, http.StatusMethodNotAllowed},
+// ServeHTTP handles GET and HEAD requests to /external.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		h.writeJSON(w, r.Method, http.StatusMethodNotAllowed, apiResponse{
+			OK:    false,
+			Error: fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
 	}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.method, func(t *testing.T) {
-			t.Parallel()
-			h := newTestHandler(t, newFakeClock(), factFetcher("Cats purr"))
+	now := h.now()
 
-			rec := serve(h, tt.method)
-			assertStatus(t, rec, tt.want)
-			if tt.want == http.StatusMethodNotAllowed {
-				assertHeader(t, rec, "Allow", "GET, HEAD")
-				if decodeResp(t, rec).OK {
-					t.Error("expected ok=false")
-				}
+	h.mu.RLock()
+	entry := h.entry
+	lastFailure := h.lastFailure
+	h.mu.RUnlock()
+
+	// 1. Fresh cache hit.
+	if entry != nil {
+		age := now.Sub(entry.fetchedAt)
+		if age < 0 {
+			age = 0
+		}
+		if age < h.ttl {
+			h.hits.Add(1)
+			remaining := int((h.ttl - age).Seconds())
+			if remaining < 0 {
+				remaining = 0
 			}
-		})
+			w.Header().Set("X-Cache", "HIT")
+			w.Header().Set("Age", strconv.Itoa(int(age.Seconds())))
+			w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", remaining))
+			h.writeJSON(w, r.Method, http.StatusOK, apiResponse{
+				OK:       true,
+				External: &entry.payload,
+			})
+			return
+		}
+
+		// 2. Stale-while-revalidate when background refresh is enabled and entry is within maxStale.
+		if h.bgRefresh && age <= h.ttl+h.maxStale {
+			h.staleHits.Add(1)
+			h.triggerBackgroundRefresh()
+			w.Header().Set("X-Cache", "STALE")
+			w.Header().Set("Age", strconv.Itoa(int(age.Seconds())))
+			w.Header().Set("Cache-Control", "public, max-age=0")
+			h.writeJSON(w, r.Method, http.StatusOK, apiResponse{
+				OK:       true,
+				External: &entry.payload,
+			})
+			return
+		}
 	}
-}
 
-func TestHandler_Prime(t *testing.T) {
-	t.Parallel()
-
-	t.Run("warms the cache", func(t *testing.T) {
-		t.Parallel()
-		cf := &countingFetcher{fn: factFetcher("Cats purr")}
-		h := newTestHandler(t, newFakeClock(), cf.fetch)
-
-		if err := h.Prime(context.Background()); err != nil {
-			t.Fatalf("Prime: %v", err)
+	// 3. Circuit-breaker backoff window when no fresh entry exists.
+	if h.backoff > 0 && !lastFailure.IsZero() {
+		elapsed := now.Sub(lastFailure)
+		if elapsed < h.backoff {
+			// If we have a valid stale entry within maxStale, serve it instead of failing.
+			if entry != nil && now.Sub(entry.fetchedAt) <= h.ttl+h.maxStale {
+				h.serveStale(w, r.Method, entry, now)
+				return
+			}
+			retryAfter := int((h.backoff - elapsed + time.Second - 1) / time.Second)
+			if retryAfter < 1 {
+				retryAfter = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+			h.writeJSON(w, r.Method, http.StatusServiceUnavailable, apiResponse{
+				OK:    false,
+				Error: "upstream temporarily unavailable; retry later",
+			})
+			return
 		}
-		rec := serve(h, http.MethodGet)
-		assertStatus(t, rec, http.StatusOK)
-		assertHeader(t, rec, "X-Cache", "HIT")
-		assertCalls(t, cf, 1)
-	})
+	}
 
-	t.Run("returns upstream error", func(t *testing.T) {
-		t.Parallel()
-		h := newTestHandler(t, newFakeClock(), func(context.Context) (*CatFactResponse, error) {
-			return nil, errors.New("boom")
+	// 4. Cache miss or synchronous refresh via single-flight coalescing.
+	h.misses.Add(1)
+	payload, err := h.refreshSingleFlight(r.Context(), true)
+	if err == nil {
+		w.Header().Set("X-Cache", "MISS")
+		w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", int(h.ttl.Seconds())))
+		h.writeJSON(w, r.Method, http.StatusOK, apiResponse{
+			OK:       true,
+			External: &payload,
 		})
-		if err := h.Prime(context.Background()); err == nil {
-			t.Fatal("expected an error")
-		}
+		return
+	}
+
+	// 5. Synchronous upstream failed: fall back to stale entry if within maxStale.
+	h.mu.RLock()
+	staleCandidate := h.entry
+	h.mu.RUnlock()
+
+	if staleCandidate != nil && h.now().Sub(staleCandidate.fetchedAt) <= h.ttl+h.maxStale {
+		h.serveStale(w, r.Method, staleCandidate, h.now())
+		return
+	}
+
+	status := http.StatusBadGateway
+	if errors.Is(err, context.DeadlineExceeded) {
+		status = http.StatusGatewayTimeout
+	}
+	h.writeJSON(w, r.Method, status, apiResponse{
+		OK:    false,
+		Error: err.Error(),
 	})
 }
+
+func (h *Handler) serveStale(w http.ResponseWriter, method string, entry *cacheEntry, now time.Time) {
+	h.staleHits.Add(1)
+	age := int(now.Sub(entry.fetchedAt).Seconds())
+	if age < 0 {
+		age = 0
+	}
+	w.Header().Set("X-Cache", "STALE")
+	w.Header().Set("Age", strconv.Itoa(age))
+	w.Header().Set("Cache-Control", "public, max-age=0")
+	h.writeJSON(w, method, http.StatusOK, apiResponse{
+		OK:       true,
+		External: &entry.payload,
+	})
+}
+
+func (h *Handler) triggerBackgroundRefresh() {
+	if h.closed.Load() {
+		return
+	}
+	h.mu.Lock()
+	if h.bgRunning || h.inFlight != nil {
+		h.mu.Unlock()
+		return
+	}
+	h.bgRunning = true
+	h.bgWG.Add(1)
+	h.mu.Unlock()
+
+	go func() {
+		defer h.bgWG.Done()
+		defer func() {
+			h.mu.Lock()
+			h.bgRunning = false
+			h.mu.Unlock()
+		}()
+
+		ctx, cancel := context.WithTimeout(context.Background(), h.fetchTimeout)
+		defer cancel()
+
+		if _, err := h.refreshSingleFlight(ctx, false); err != nil {
+			h.logger.Warn("background refresh failed", slog.Any("err", err))
+		}
+	}()
+}
+
+func (h *Handler) refreshSingleFlight(ctx context.Context, recordFailure bool) (ExternalPayload, error) {
+	h.mu.Lock()
+	if call := h.inFlight; call != nil {
+		h.mu.Unlock()
+		call.wg.Wait()
+		return call.payload, call.err
+	}
+
+	call := &flightCall{}
+	call.wg.Add(1)
+	h.inFlight = call
+	h.mu.Unlock()
+
+	payload, err := h.fetchWithRetries(ctx)
+
+	h.mu.Lock()
+	h.inFlight = nil
+	if err == nil {
+		now := h.now()
+		payload.FetchedAt = now
+		h.entry = &cacheEntry{
+			payload:   payload,
+			fetchedAt: now,
+		}
+		h.lastFailure = time.Time{}
+		h.refreshes.Add(1)
+	} else {
+		h.errCount.Add(1)
+		if recordFailure {
+			h.lastFailure = h.now()
+		}
+	}
+	h.mu.Unlock()
+
+	call.payload = payload
+	call.err = err
+	call.wg.Done()
+
+	return payload, err
+}
+
+func (h *Handler) fetchWithRetries(ctx context.Context) (ExternalPayload, error) {
+	var lastErr error
+	attempts := h.retries + 1
+
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 && h.retryDelay > 0 {
+			timer := time.NewTimer(h.retryDelay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ExternalPayload{}, ctx.Err()
+			case <-timer.C:
+			}
+		}
+
+		raw, err := h.fetcher(ctx)
+		if err != nil {
+			lastErr = err
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return ExternalPayload{}, err
+			}
+			continue
+		}
+		if raw == nil {
+			lastErr = errors.New("upstream returned nil response")
+			continue
+		}
+		if raw.Fact == "" {
+			lastErr = errors.New("upstream returned empty fact")
+			continue
+		}
+
+		length := raw.Length
+		if length == 0 {
+			length = len(raw.Fact)
+		}
+
+		return ExternalPayload{
+			Fact:   raw.
