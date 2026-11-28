@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -26,38 +28,28 @@ const (
 )
 
 var (
-	// ErrEmptyFact is returned when the API answers 200 but without a usable fact.
-	ErrEmptyFact = errors.New("catfact: empty fact in response")
-
-	// ErrFactTooLong is returned when a fact exceeds the configured rune limit.
+	ErrEmptyFact   = errors.New("catfact: empty fact in response")
 	ErrFactTooLong = errors.New("catfact: fact exceeds maximum length")
-
-	// ErrInvalidURL is returned when the fetcher was built with a bad URL.
-	ErrInvalidURL = errors.New("catfact: invalid URL")
+	ErrInvalidURL  = errors.New("catfact: invalid URL")
+	ErrCircuitOpen = errors.New("catfact: circuit breaker is open")
 )
 
 var (
 	_ FactFetcher = (*catFactFetcher)(nil)
 	_ FactFetcher = (*CachedFetcher)(nil)
+	_ FactFetcher = (*CircuitBreakerFetcher)(nil)
+	_ FactFetcher = (*InstrumentedFetcher)(nil)
 	_ FactFetcher = (*FakeFetcher)(nil)
 )
 
-// FactFetcher retrieves a single fact. It is an interface so handlers can be
-// tested with a fake instead of hitting the network.
 type FactFetcher interface {
 	Fetch(ctx context.Context) (string, error)
 }
 
-// ---------------------------------------------------------------------
-// errors
-// ---------------------------------------------------------------------
-
-// StatusError is returned when the API answers with a non-200 status.
-// Callers can use errors.As to inspect the code and body snippet.
 type StatusError struct {
 	Code       int
 	Body       string
-	RetryAfter time.Duration // zero if the server sent no usable Retry-After
+	RetryAfter time.Duration
 }
 
 func (e *StatusError) Error() string {
@@ -67,19 +59,21 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("catfact: unexpected status %d: %s", e.Code, e.Body)
 }
 
-// Retryable reports whether trying again could plausibly succeed.
 func (e *StatusError) Retryable() bool {
-	return e.Code == http.StatusTooManyRequests || e.Code >= 500
+	return e.Code == http.StatusTooManyRequests ||
+		e.Code == http.StatusRequestTimeout ||
+		e.Code >= 500
 }
 
-// transportError marks failures that happened before a response arrived
-// (DNS, connection reset, client timeout). These are worth retrying.
 type transportError struct{ err error }
 
 func (e *transportError) Error() string { return "catfact: request failed: " + e.err.Error() }
 func (e *transportError) Unwrap() error { return e.err }
 
 func isRetryable(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
 	var se *StatusError
 	if errors.As(err, &se) {
 		return se.Retryable()
@@ -89,16 +83,19 @@ func isRetryable(err error) bool {
 }
 
 type config struct {
-	userAgent  string
-	retries    int
-	backoff    time.Duration
-	maxFactLen int // in runes; 0 means unlimited
+	userAgent   string
+	retries     int
+	backoff     time.Duration
+	maxBackoff  time.Duration
+	jitter      bool
+	maxFactLen  int // in runes; 0 means unlimited
+	headers     http.Header
+	now         func() time.Time
+	randFloat64 func() float64
 }
 
-// Option customises a fetcher created by NewCatFactFetcher.
 type Option func(*config)
 
-// WithUserAgent sets the User-Agent header.
 func WithUserAgent(ua string) Option {
 	return func(c *config) {
 		if strings.TrimSpace(ua) != "" {
@@ -107,8 +104,17 @@ func WithUserAgent(ua string) Option {
 	}
 }
 
-// WithRetries sets how many extra attempts are made after a retryable
-// failure, with exponential backoff starting at base.
+func WithHeader(key, value string) Option {
+	return func(c *config) {
+		if strings.TrimSpace(key) != "" {
+			if c.headers == nil {
+				c.headers = make(http.Header)
+			}
+			c.headers.Set(key, value)
+		}
+	}
+}
+
 func WithRetries(n int, base time.Duration) Option {
 	return func(c *config) {
 		if n < 0 {
@@ -118,6 +124,20 @@ func WithRetries(n int, base time.Duration) Option {
 		if base > 0 {
 			c.backoff = base
 		}
+	}
+}
+
+func WithMaxBackoff(d time.Duration) Option {
+	return func(c *config) {
+		if d > 0 {
+			c.maxBackoff = d
+		}
+	}
+}
+
+func WithJitter(enabled bool) Option {
+	return func(c *config) {
+		c.jitter = enabled
 	}
 }
 
@@ -141,15 +161,19 @@ type catFactFetcher struct {
 	cfg    config
 }
 
-// NewCatFactFetcher returns a FactFetcher for the given URL
-// (for example "https://catfact.ninja/fact").
-// If client is nil, a client with a 5s timeout is used.
-// An invalid URL is reported by Fetch as ErrInvalidURL.
+// NewCatFactFetcher builds an HTTP-backed FactFetcher with retry and validation support.
 func NewCatFactFetcher(client *http.Client, rawURL string, opts ...Option) FactFetcher {
 	if client == nil {
 		client = &http.Client{Timeout: clientLimit}
 	}
-	cfg := config{userAgent: defaultUserAgent, backoff: defaultBackoff}
+	cfg := config{
+		userAgent:   defaultUserAgent,
+		backoff:     defaultBackoff,
+		maxBackoff:  maxBackoff,
+		jitter:      true,
+		now:         time.Now,
+		randFloat64: rand.Float64,
+	}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -162,10 +186,12 @@ func NewCatFactFetcher(client *http.Client, rawURL string, opts ...Option) FactF
 	return f
 }
 
-// Fetch gets a fact, retrying transient failures according to the options.
 func (f *catFactFetcher) Fetch(ctx context.Context) (string, error) {
 	if f.urlErr != nil {
 		return "", f.urlErr
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
 
 	var lastErr error
@@ -191,30 +217,42 @@ func (f *catFactFetcher) fetchOnce(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("catfact: build request: %w", err)
 	}
+	for k, vals := range f.cfg.headers {
+		for _, v := range vals {
+			req.Header.Add(k, v)
+		}
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", f.cfg.userAgent)
 
 	resp, err := f.client.Do(req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", &transportError{err: err}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// Drain any unread bytes up to maxErrBody so net/http can reuse the TCP connection.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrBody))
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
-		// Read a bounded snippet for diagnostics. Reading it also lets the
-		// connection be reused by the transport.
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBody))
 		return "", &StatusError{
 			Code:       resp.StatusCode,
 			Body:       strings.TrimSpace(string(snippet)),
-			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), f.cfg.now()),
 		}
 	}
 
 	var payload struct {
-		Fact string `json:"fact"`
+		Fact   string `json:"fact"`
+		Length int    `json:"length"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxOKBody)).Decode(&payload); err != nil {
+	dec := json.NewDecoder(io.LimitReader(resp.Body, maxOKBody))
+	if err := dec.Decode(&payload); err != nil {
 		return "", fmt.Errorf("catfact: decode response: %w", err)
 	}
 
@@ -229,31 +267,48 @@ func (f *catFactFetcher) fetchOnce(ctx context.Context) (string, error) {
 }
 
 // delay picks how long to wait before the next attempt: the server's
-// Retry-After if present, otherwise exponential backoff. Both are capped.
+// Retry-After if present, otherwise exponential backoff (with optional full jitter).
 func (f *catFactFetcher) delay(attempt int, err error) time.Duration {
 	var se *StatusError
 	if errors.As(err, &se) && se.RetryAfter > 0 {
-		return min(se.RetryAfter, maxBackoff)
+		return min(se.RetryAfter, f.cfg.maxBackoff)
 	}
 	d := f.cfg.backoff << uint(attempt)
-	if d <= 0 || d > maxBackoff { // <= 0 guards against shift overflow
-		return maxBackoff
+	if d <= 0 || d > f.cfg.maxBackoff { // <= 0 guards against shift overflow
+		d = f.cfg.maxBackoff
+	}
+	if f.cfg.jitter && d > 0 {
+		// Full jitter: random value in [0, d]
+		return time.Duration(f.cfg.randFloat64() * float64(d))
 	}
 	return d
 }
 
-// parseRetryAfter understands the delta-seconds form of Retry-After.
-// HTTP-date values are ignored (treated as "no hint").
-func parseRetryAfter(v string) time.Duration {
-	secs, err := strconv.Atoi(strings.TrimSpace(v))
-	if err != nil || secs <= 0 {
+// parseRetryAfter supports both delta-seconds and HTTP-date forms of Retry-After.
+func parseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
 		return 0
 	}
-	return time.Duration(secs) * time.Second
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
 }
 
 // sleepCtx waits for d or until ctx is done, whichever comes first.
 func sleepCtx(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
@@ -265,56 +320,313 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 // ---------------------------------------------------------------------
-// caching decorator
+// caching decorator (with singleflight & stale-if-error)
 // ---------------------------------------------------------------------
 
-// CachedFetcher remembers the last successful fact for ttl. If a refresh
-// fails, the stale fact is served instead of an error. The mutex is held
-// during the refresh, which also prevents a burst of callers from all
-// hitting the upstream API at once.
-type CachedFetcher struct {
-	next FactFetcher
-	ttl  time.Duration
-	now  func() time.Time // injectable for tests
+type inflightCall struct {
+	wg   sync.WaitGroup
+	fact string
+	err  error
+}
 
-	mu      sync.Mutex
-	fact    string
-	fetched time.Time
+// CachedFetcher remembers the last successful fact for ttl.
+// Concurrent callers arriving when the cache is expired share a single
+// upstream flight (singleflight), and if the refresh fails, a previously
+// cached fact (within maxStale, or forever if maxStale == 0) is returned.
+type CachedFetcher struct {
+	next     FactFetcher
+	ttl      time.Duration
+	maxStale time.Duration
+	now      func() time.Time // injectable for tests
+
+	mu       sync.Mutex
+	fact     string
+	fetched  time.Time
+	inflight *inflightCall
 }
 
 // NewCachedFetcher wraps next with a single-entry TTL cache.
 func NewCachedFetcher(next FactFetcher, ttl time.Duration) *CachedFetcher {
-	return &CachedFetcher{next: next, ttl: ttl, now: time.Now}
+	return &CachedFetcher{
+		next: next,
+		ttl:  ttl,
+		now:  time.Now,
+	}
+}
+
+// WithMaxStale limits how old a cached entry can be when serving stale on error.
+// A zero duration (the default) allows serving stale entries indefinitely on error.
+func (c *CachedFetcher) WithMaxStale(d time.Duration) *CachedFetcher {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if d >= 0 {
+		c.maxStale = d
+	}
+	return c
+}
+
+// Invalidate clears the cached fact so the next Fetch hits upstream.
+func (c *CachedFetcher) Invalidate() {
+	c.mu.Lock()
+	c.fact = ""
+	c.fetched = time.Time{}
+	c.mu.Unlock()
 }
 
 func (c *CachedFetcher) Fetch(ctx context.Context) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.fact != "" && c.now().Sub(c.fetched) < c.ttl {
-		return c.fact, nil
-	}
-
-	fact, err := c.next.Fetch(ctx)
-	if err != nil {
-		if c.fact != "" {
-			return c.fact, nil // serve stale rather than fail
-		}
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	c.fact, c.fetched = fact, c.now()
-	return fact, nil
+
+	c.mu.Lock()
+	now := c.now()
+	if c.fact != "" && now.Sub(c.fetched) < c.ttl {
+		fact := c.fact
+		c.mu.Unlock()
+		return fact, nil
+	}
+
+	// Join an already-running refresh if one exists.
+	if call := c.inflight; call != nil {
+		c.mu.Unlock()
+		done := make(chan struct{})
+		go func() {
+			call.wg.Wait()
+			close(done)
+		}()
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-done:
+			return call.fact, call.err
+		}
+	}
+
+	// Start a new singleflight refresh.
+	call := &inflightCall{}
+	call.wg.Add(1)
+	c.inflight = call
+	c.mu.Unlock()
+
+	fact, err := c.next.Fetch(ctx)
+
+	c.mu.Lock()
+	c.inflight = nil
+	if err == nil {
+		c.fact = fact
+		c.fetched = c.now()
+		call.fact = fact
+	} else if c.canServeStaleLocked(c.now()) {
+		call.fact = c.fact
+		call.err = nil
+	} else {
+		call.err = err
+	}
+	c.mu.Unlock()
+
+	call.wg.Done()
+	return call.fact, call.err
+}
+
+func (c *CachedFetcher) canServeStaleLocked(now time.Time) bool {
+	if c.fact == "" {
+		return false
+	}
+	if c.maxStale == 0 {
+		return true
+	}
+	return now.Sub(c.fetched) <= c.ttl+c.maxStale
+}
+
+// ---------------------------------------------------------------------
+// circuit breaker decorator
+// ---------------------------------------------------------------------
+
+// CircuitState represents the current state of a CircuitBreakerFetcher.
+type CircuitState int
+
+const (
+	CircuitClosed CircuitState = iota
+	CircuitOpen
+	CircuitHalfOpen
+)
+
+func (s CircuitState) String() string {
+	switch s {
+	case CircuitClosed:
+		return "closed"
+	case CircuitOpen:
+		return "open"
+	case CircuitHalfOpen:
+		return "half-open"
+	default:
+		return "unknown"
+	}
+}
+
+// CircuitBreakerFetcher stops forwarding requests to next after threshold
+// consecutive failures, failing fast with ErrCircuitOpen until cooldown elapses.
+type CircuitBreakerFetcher struct {
+	next      FactFetcher
+	threshold int
+	cooldown  time.Duration
+	now       func() time.Time
+
+	mu          sync.Mutex
+	state       CircuitState
+	failures    int
+	openedAt    time.Time
+	halfOpenRun bool
+}
+
+// NewCircuitBreakerFetcher wraps next with a circuit breaker.
+func NewCircuitBreakerFetcher(next FactFetcher, failureThreshold int, cooldown time.Duration) *CircuitBreakerFetcher {
+	if failureThreshold < 1 {
+		failureThreshold = 1
+	}
+	if cooldown <= 0 {
+		cooldown = 10 * time.Second
+	}
+	return &CircuitBreakerFetcher{
+		next:      next,
+		threshold: failureThreshold,
+		cooldown:  cooldown,
+		now:       time.Now,
+	}
+}
+
+// State returns the breaker's current CircuitState.
+func (cb *CircuitBreakerFetcher) State() CircuitState {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	if cb.state == CircuitOpen && cb.now().Sub(cb.openedAt) >= cb.cooldown {
+		return CircuitHalfOpen
+	}
+	return cb.state
+}
+
+func (cb *CircuitBreakerFetcher) Fetch(ctx context.Context) (string, error) {
+	cb.mu.Lock()
+	now := cb.now()
+	switch cb.state {
+	case CircuitOpen:
+		if now.Sub(cb.openedAt) < cb.cooldown {
+			cb.mu.Unlock()
+			return "", ErrCircuitOpen
+		}
+		cb.state = CircuitHalfOpen
+		cb.halfOpenRun = true
+	case CircuitHalfOpen:
+		if cb.halfOpenRun {
+			cb.mu.Unlock()
+			return "", ErrCircuitOpen
+		}
+		cb.halfOpenRun = true
+	}
+	cb.mu.Unlock()
+
+	fact, err := cb.next.Fetch(ctx)
+
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.halfOpenRun = false
+
+	if err == nil {
+		cb.failures = 0
+		cb.state = CircuitClosed
+		return fact, nil
+	}
+
+	// Do not penalize upstream for caller cancellations.
+	if errors.Is(err, context.Canceled) {
+		return "", err
+	}
+
+	cb.failures++
+	if cb.state == CircuitHalfOpen || cb.failures >= cb.threshold {
+		cb.state = CircuitOpen
+		cb.openedAt = cb.now()
+	}
+	return "", err
+}
+
+// ---------------------------------------------------------------------
+// observability / metrics decorator
+// ---------------------------------------------------------------------
+
+// MetricsSnapshot is a point-in-time view of fetcher counters.
+type MetricsSnapshot struct {
+	Requests      uint64
+	Successes     uint64
+	Failures      uint64
+	TotalDuration time.Duration
+}
+
+// AvgLatency returns the mean request duration across completed requests.
+func (m MetricsSnapshot) AvgLatency() time.Duration {
+	if m.Requests == 0 {
+		return 0
+	}
+	return m.TotalDuration / time.Duration(m.Requests)
+}
+
+// InstrumentedFetcher records atomic request counts, outcomes, and latency.
+type InstrumentedFetcher struct {
+	next      FactFetcher
+	requests  atomic.Uint64
+	successes atomic.Uint64
+	failures  atomic.Uint64
+	totalNs   atomic.Int64
+}
+
+// NewInstrumentedFetcher wraps next with lightweight atomic telemetry.
+func NewInstrumentedFetcher(next FactFetcher) *InstrumentedFetcher {
+	return &InstrumentedFetcher{next: next}
+}
+
+func (m *InstrumentedFetcher) Fetch(ctx context.Context) (string, error) {
+	start := time.Now()
+	fact, err := m.next.Fetch(ctx)
+	elapsed := time.Since(start)
+
+	m.requests.Add(1)
+	m.totalNs.Add(int64(elapsed))
+	if err != nil {
+		m.failures.Add(1)
+	} else {
+		m.successes.Add(1)
+	}
+	return fact, err
+}
+
+// Snapshot returns current counters safely across goroutines.
+func (m *InstrumentedFetcher) Snapshot() MetricsSnapshot {
+	return MetricsSnapshot{
+		Requests:      m.requests.Load(),
+		Successes:     m.successes.Load(),
+		Failures:      m.failures.Load(),
+		TotalDuration: time.Duration(m.totalNs.Load()),
+	}
 }
 
 // ---------------------------------------------------------------------
 // test double
 // ---------------------------------------------------------------------
 
-// FakeFetcher is a FactFetcher for tests. It returns Fact (or Err if set)
-// and counts how many times it was called.
-type FakeFetcher struct {
+// FakeResult represents one scripted outcome for FakeFetcher.Sequence.
+type FakeResult struct {
 	Fact string
 	Err  error
+}
+
+// FakeFetcher is a FactFetcher for tests. It supports static responses,
+// scripted call sequences, artificial latency, and custom callbacks.
+type FakeFetcher struct {
+	Fact     string
+	Err      error
+	Delay    time.Duration
+	Sequence []FakeResult
+	Fn       func(ctx context.Context, callNum int) (string, error)
 
 	mu    sync.Mutex
 	calls int
@@ -323,10 +635,28 @@ type FakeFetcher struct {
 func (f *FakeFetcher) Fetch(ctx context.Context) (string, error) {
 	f.mu.Lock()
 	f.calls++
+	callNum := f.calls
+	var seqItem *FakeResult
+	if len(f.Sequence) > 0 {
+		idx := min(callNum-1, len(f.Sequence)-1)
+		item := f.Sequence[idx]
+		seqItem = &item
+	}
 	f.mu.Unlock()
 
+	if f.Delay > 0 {
+		if err := sleepCtx(ctx, f.Delay); err != nil {
+			return "", err
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return "", err
+	}
+	if f.Fn != nil {
+		return f.Fn(ctx, callNum)
+	}
+	if seqItem != nil {
+		return seqItem.Fact, seqItem.Err
 	}
 	if f.Err != nil {
 		return "", f.Err
@@ -339,4 +669,11 @@ func (f *FakeFetcher) Calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.calls
+}
+
+// Reset clears the recorded call count.
+func (f *FakeFetcher) Reset() {
+	f.mu.Lock()
+	f.calls = 0
+	f.mu.Unlock()
 }
